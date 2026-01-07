@@ -1,0 +1,30 @@
+[package]
+name = "botkit-examples"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "unified"
+path = "unified.rs"
+
+[[bin]]
+name = "test_telegram"
+path = "test_telegram.rs"
+
+[[bin]]
+name = "test_polling"
+path = "test_polling.rs"
+
+[dependencies]
+zenwave.workspace = true
+botkit-core.workspace = true
+botkit-discord = { path = "../discord" }
+botkit-telegram = { path = "../telegram" }
+skyzen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures-lite.workspace = true
+executor-core.workspace = true
+http-kit.workspace = true

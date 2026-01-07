@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = ["core", "discord", "telegram", "examples"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/example/botkit"
+
+[workspace.dependencies]
+# Internal crates
+botkit-core = { path = "core" }
+botkit-discord = { path = "discord" }
+botkit-telegram = { path = "telegram" }
+
+# HTTP foundation
+http-kit = "0.4.2"
+skyzen = "0.1.0"
+zenwave = "0.3.0"
+
+# Serialization
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.148"
+
+# Error handling
+thiserror = "2.0.17"
+
+# Async runtime
+futures-lite = "2"
+executor-core = "0.7"
