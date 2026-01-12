@@ -1,6 +1,7 @@
 use botkit_core::types::component::{ActionRow, Button, Component};
 use botkit_core::{Bot, Response, User};
 use botkit_discord::{DiscordBot, GatewayIntents};
+use botkit_matrix::{MatrixBot, MatrixConfig};
 use botkit_telegram::{TelegramBot, TelegramWebhook, Update};
 use executor_core::spawn;
 use skyzen::routing::{CreateRouteNode, Route, Router};
@@ -41,7 +42,8 @@ async fn button_hello() -> Response {
 }
 
 async fn button_info() -> Response {
-    Response::text("This is a unified bot framework supporting Discord and Telegram!").ephemeral()
+    Response::text("This is a unified bot framework supporting Discord, Telegram, and Matrix!")
+        .ephemeral()
 }
 
 async fn button_cancel() -> Response {
@@ -78,6 +80,19 @@ fn setup_telegram_bot(token: &str) -> TelegramWebhook {
         .build()
 }
 
+// Matrix bot setup - same handlers, uses ! prefix for commands
+fn setup_matrix_bot(config: MatrixConfig) -> MatrixBot {
+    MatrixBot::new(config)
+        .command("ping", ping)
+        .command("help", help)
+        .command("greet", greet)
+        .command("buttons", buttons)
+        // Matrix uses reactions instead of buttons
+        .reaction("👋", button_hello)
+        .reaction("ℹ️", button_info)
+        .reaction("❌", button_cancel)
+}
+
 // Create skyzen router with Telegram webhook endpoint
 fn create_router(telegram: TelegramWebhook) -> Router {
     Route::new((
@@ -103,6 +118,9 @@ fn main() -> Router {
     let discord_token = std::env::var("DISCORD_TOKEN").unwrap_or_default();
     let discord_app_id = std::env::var("DISCORD_APP_ID").unwrap_or_default();
     let telegram_token = std::env::var("TELEGRAM_TOKEN").unwrap_or_default();
+    let matrix_homeserver = std::env::var("MATRIX_HOMESERVER").unwrap_or_default();
+    let matrix_user = std::env::var("MATRIX_USER").unwrap_or_default();
+    let matrix_password = std::env::var("MATRIX_PASSWORD").unwrap_or_default();
 
     // Setup Telegram webhook handler
     let telegram = setup_telegram_bot(&telegram_token);
@@ -119,8 +137,28 @@ fn main() -> Router {
         .detach();
     }
 
+    // Setup and spawn Matrix bot (runs via sync loop in background)
+    if !matrix_homeserver.is_empty() && !matrix_user.is_empty() && !matrix_password.is_empty() {
+        let config = MatrixConfig::new(&matrix_homeserver)
+            .password_auth(&matrix_user, &matrix_password)
+            .command_prefix("!")
+            .device_name("BotKit Unified Example")
+            .auto_join_rooms(true);
+
+        let matrix = setup_matrix_bot(config);
+
+        spawn(async move {
+            if let Err(e) = matrix.run().await {
+                eprintln!("Matrix bot error: {}", e);
+            }
+        })
+        .detach();
+    }
+
     println!("Starting unified bot server...");
     println!("- Telegram webhook: POST /telegram/webhook");
+    println!("- Discord: WebSocket connection (if configured)");
+    println!("- Matrix: Sync loop (if configured)");
     println!("- Health check: GET /health");
 
     // Return skyzen router for HTTP server
