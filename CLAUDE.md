@@ -12,11 +12,13 @@ cargo build
 cargo build -p botkit-core
 cargo build -p botkit-discord
 cargo build -p botkit-telegram
+cargo build -p botkit-matrix
 
 # Run examples
 cargo run -p botkit-examples --bin unified
 cargo run -p botkit-examples --bin test_telegram
 cargo run -p botkit-examples --bin test_polling
+cargo run -p botkit-examples --bin test_matrix
 
 # Check without building
 cargo check
@@ -30,13 +32,14 @@ cargo clippy
 
 ## Architecture
 
-This is a unified bot framework supporting Discord and Telegram platforms through a common abstraction layer.
+This is a unified bot framework supporting Discord, Telegram, and Matrix platforms through a common abstraction layer.
 
 ### Workspace Structure
 
 - **core/** (`botkit-core`): Platform-agnostic abstractions - traits, extractors, responders, and shared types
 - **discord/** (`botkit-discord`): Discord implementation using WebSocket Gateway
 - **telegram/** (`botkit-telegram`): Telegram implementation supporting both webhooks (via skyzen HTTP) and long polling
+- **matrix/** (`botkit-matrix`): Matrix implementation using matrix-sdk with E2EE support
 - **examples/**: Runnable examples demonstrating unified and platform-specific usage
 
 ### Key Abstractions (in `botkit-core`)
@@ -85,6 +88,29 @@ DiscordBot::new(token, app_id, intents)
 - **Polling mode**: `bot.run_polling()` for development/testing
 - Handles `/commands` and inline keyboard callbacks
 
+**Matrix** (`matrix/`):
+- Uses `matrix-sdk` crate for protocol handling (including E2EE)
+- **Sync loop mode**: `bot.run()` connects and syncs with homeserver
+- Commands parsed from messages with configurable prefix (default `!`)
+- Reactions mapped to button handlers via `reaction:emoji` pattern
+- Supports password auth or access token auth
+- WASM compatible via `js` feature flag
+
+```rust
+// Matrix bot example
+let config = MatrixConfig::new("https://matrix.org")
+    .password_auth("@bot:matrix.org", "password")
+    .command_prefix("!")
+    .auto_join_rooms(true);
+
+MatrixBot::new(config)
+    .command("ping", ping)
+    .command("greet", greet)
+    .reaction("👍", on_thumbsup)
+    .run()
+    .await?;
+```
+
 ### HTTP Stack
 
 Uses custom HTTP crates (not tokio ecosystem):
@@ -92,6 +118,7 @@ Uses custom HTTP crates (not tokio ecosystem):
 - `zenwave` - WebSocket client
 - `http-kit` - HTTP primitives
 - `executor-core` - Async runtime primitives
+- `matrix-sdk` - Matrix protocol (uses tokio internally but WASM-compatible)
 
 ## Code Conventions
 
