@@ -89,7 +89,12 @@ impl DiscordBot {
         // Handle ping
         if interaction.interaction_type == InteractionType::Ping {
             client
-                .respond_interaction(&interaction.id, &interaction.token, 1, serde_json::json!({}))
+                .respond_interaction(
+                    &interaction.id,
+                    &interaction.token,
+                    1,
+                    serde_json::json!({}),
+                )
                 .await?;
             return Ok(());
         }
@@ -123,7 +128,7 @@ impl DiscordBot {
         let handler = self.builder.find_handler(event_type, &value);
 
         if let Some(handler) = handler {
-            let data = DiscordContextData::new(interaction.clone());
+            let data = DiscordContextData::new(interaction.clone(), client.clone());
             let ctx = Context::new(data);
 
             let response = handler.call(ctx).await;
@@ -139,7 +144,7 @@ impl DiscordBot {
         &self,
         client: &DiscordClient,
         interaction: &Interaction,
-        response: Response,
+        mut response: Response,
     ) -> Result<(), BotError> {
         if response.is_empty() {
             return Ok(());
@@ -155,6 +160,38 @@ impl DiscordBot {
                 )
                 .await?;
             return Ok(());
+        }
+
+        // Handle file response - send to channel directly since interactions
+        // don't support file uploads in the initial response
+        if response.is_file() {
+            if let Some(file_response) = response.take_file() {
+                if let Some(channel_id) = &interaction.channel_id {
+                    // Show typing indicator
+                    let _ = client.trigger_typing(channel_id).await;
+
+                    // Acknowledge the interaction first
+                    client
+                        .respond_interaction(
+                            &interaction.id,
+                            &interaction.token,
+                            5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+                            serde_json::json!({}),
+                        )
+                        .await?;
+
+                    // Send file to channel
+                    let filename = file_response.filename.as_deref().unwrap_or("file");
+                    return client
+                        .send_file(
+                            channel_id,
+                            file_response.file,
+                            filename,
+                            file_response.caption.as_deref(),
+                        )
+                        .await;
+                }
+            }
         }
 
         // Build response data

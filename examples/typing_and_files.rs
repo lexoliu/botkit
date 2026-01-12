@@ -70,7 +70,11 @@ fn main() {
             .command_with_description("start", "Show available commands", start)
             .command_with_description("think", "Shows typing indicator for 3 seconds", think)
             .command_with_description("file", "Sends Cargo.toml as a document", get_file)
-            .command_with_description("filewithcaption", "Sends file with caption", get_file_with_caption)
+            .command_with_description(
+                "filewithcaption",
+                "Sends file with caption",
+                get_file_with_caption,
+            )
             .command_with_description("download", "Sends file with custom name", download)
             .run_polling()
             .await

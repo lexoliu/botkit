@@ -50,14 +50,18 @@ async fn button_cancel() -> Response {
 
 // Discord bot setup - clean API with extractors
 fn setup_discord_bot(token: &str, app_id: &str) -> DiscordBot {
-    DiscordBot::new(token, app_id, GatewayIntents::GUILDS | GatewayIntents::GUILD_MESSAGES)
-        .command("ping", ping)
-        .command("help", help)
-        .command("greet", greet)
-        .command("buttons", buttons)
-        .button("btn_hello", button_hello)
-        .button("btn_info", button_info)
-        .button("btn_cancel", button_cancel)
+    DiscordBot::new(
+        token,
+        app_id,
+        GatewayIntents::GUILDS | GatewayIntents::GUILD_MESSAGES,
+    )
+    .command("ping", ping)
+    .command("help", help)
+    .command("greet", greet)
+    .command("buttons", buttons)
+    .button("btn_hello", button_hello)
+    .button("btn_info", button_info)
+    .button("btn_cancel", button_cancel)
 }
 
 // Telegram bot setup - same handlers work seamlessly

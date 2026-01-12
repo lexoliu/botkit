@@ -1,14 +1,20 @@
 use std::any::Any;
 
+use botkit_core::action::ChatActionSender;
 use botkit_core::{ContextData, OptionValue};
 
+use crate::action::TelegramActionSender;
+use crate::client::TelegramClient;
 use crate::types::{EntityType, Update, UpdateKind};
 
 /// Telegram context data - implements ContextData for platform abstraction
 pub struct TelegramContextData {
     pub update: Update,
+    // Client for API calls
+    client: TelegramClient,
     // Cached values
     channel_id: String,
+    chat_id: i64,
     user_id: String,
     user_name: String,
     command_name: Option<String>,
@@ -18,23 +24,19 @@ pub struct TelegramContextData {
 }
 
 impl TelegramContextData {
-    pub fn new(update: Update) -> Self {
-        let (channel_id, user_id, user_name, message_content) = match &update.kind {
+    pub fn new(update: Update, client: TelegramClient) -> Self {
+        let (chat_id, user_id, user_name, message_content) = match &update.kind {
             UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => {
                 let user = m.from.as_ref();
                 (
-                    m.chat.id.to_string(),
+                    m.chat.id,
                     user.map(|u| u.id.to_string()).unwrap_or_default(),
                     user.map(|u| u.first_name.clone()).unwrap_or_default(),
                     m.text.clone(),
                 )
             }
             UpdateKind::CallbackQuery(cq) => {
-                let chat_id = cq
-                    .message
-                    .as_ref()
-                    .map(|m| m.chat.id.to_string())
-                    .unwrap_or_default();
+                let chat_id = cq.message.as_ref().map(|m| m.chat.id).unwrap_or(0);
                 (
                     chat_id,
                     cq.from.id.to_string(),
@@ -42,7 +44,7 @@ impl TelegramContextData {
                     cq.message.as_ref().and_then(|m| m.text.clone()),
                 )
             }
-            _ => (String::new(), String::new(), String::new(), None),
+            _ => (0, String::new(), String::new(), None),
         };
 
         let (command_name, command_args) = Self::extract_command(&update);
@@ -54,7 +56,9 @@ impl TelegramContextData {
 
         Self {
             update,
-            channel_id,
+            client,
+            channel_id: chat_id.to_string(),
+            chat_id,
             user_id,
             user_name,
             command_name,
@@ -62,6 +66,16 @@ impl TelegramContextData {
             button_id,
             message_content,
         }
+    }
+
+    /// Get the client for making API calls
+    pub fn client(&self) -> &TelegramClient {
+        &self.client
+    }
+
+    /// Get the numeric chat ID
+    pub fn chat_id(&self) -> i64 {
+        self.chat_id
     }
 
     fn extract_command(update: &Update) -> (Option<String>, Option<String>) {
@@ -142,5 +156,15 @@ impl ContextData for TelegramContextData {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
+        if self.chat_id == 0 {
+            return None;
+        }
+        Some(Box::new(TelegramActionSender::new(
+            self.client.clone(),
+            self.chat_id,
+        )))
     }
 }

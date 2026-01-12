@@ -1,12 +1,17 @@
 use std::any::Any;
 
+use botkit_core::action::ChatActionSender;
 use botkit_core::{ContextData, OptionValue};
 
+use crate::action::DiscordActionSender;
+use crate::client::DiscordClient;
 use crate::types::{Interaction, InteractionData};
 
 /// Discord context data - implements ContextData for platform abstraction
 pub struct DiscordContextData {
     pub interaction: Interaction,
+    // Client for API calls
+    client: DiscordClient,
     // Cached values
     channel_id: String,
     user_id: String,
@@ -17,7 +22,7 @@ pub struct DiscordContextData {
 }
 
 impl DiscordContextData {
-    pub fn new(interaction: Interaction) -> Self {
+    pub fn new(interaction: Interaction, client: DiscordClient) -> Self {
         let channel_id = interaction.channel_id.clone().unwrap_or_default();
 
         let (user_id, user_name) = interaction
@@ -58,6 +63,7 @@ impl DiscordContextData {
 
         Self {
             interaction,
+            client,
             channel_id,
             user_id,
             user_name,
@@ -65,6 +71,11 @@ impl DiscordContextData {
             button_id,
             options,
         }
+    }
+
+    /// Get the client for making API calls
+    pub fn client(&self) -> &DiscordClient {
+        &self.client
     }
 }
 
@@ -110,5 +121,15 @@ impl ContextData for DiscordContextData {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
+        if self.channel_id.is_empty() {
+            return None;
+        }
+        Some(Box::new(DiscordActionSender::new(
+            self.client.clone(),
+            self.channel_id.clone(),
+        )))
     }
 }

@@ -1,6 +1,8 @@
 use std::any::Any;
 use std::sync::Arc;
 
+use crate::action::{ChatAction, ChatActionGuard, ChatActionSender};
+
 /// Context for handling bot events
 ///
 /// Provides access to event data and platform client. Platform-specific
@@ -69,6 +71,32 @@ impl Context {
     pub fn data(&self) -> &dyn ContextData {
         &*self.inner
     }
+
+    /// Start a typing indicator that auto-renews until the guard is dropped
+    ///
+    /// Returns `None` if the platform doesn't support typing indicators
+    /// or if the context doesn't have the necessary client.
+    ///
+    /// # Example
+    /// ```ignore
+    /// async fn slow_command(ctx: Context) -> String {
+    ///     let _typing = ctx.typing();
+    ///     // Do slow work...
+    ///     expensive_computation().await;
+    ///     "Done!"
+    /// }
+    /// ```
+    pub fn typing(&self) -> Option<ChatActionGuard> {
+        self.send_action(ChatAction::Typing)
+    }
+
+    /// Start a chat action indicator that auto-renews until the guard is dropped
+    ///
+    /// This is internal - use `typing()` for the public API.
+    pub(crate) fn send_action(&self, action: ChatAction) -> Option<ChatActionGuard> {
+        let sender = self.inner.action_sender()?;
+        Some(ChatActionGuard::start(sender, action))
+    }
 }
 
 /// Command option value
@@ -124,4 +152,12 @@ pub trait ContextData: Send + Sync + 'static {
     fn button_id(&self) -> Option<&str>;
     fn message_content(&self) -> Option<&str>;
     fn as_any(&self) -> &dyn Any;
+
+    /// Create a chat action sender for the current channel
+    ///
+    /// Returns `None` if the platform doesn't support chat actions
+    /// or if the necessary client is not available.
+    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
+        None
+    }
 }

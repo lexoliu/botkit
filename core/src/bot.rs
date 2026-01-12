@@ -1,7 +1,7 @@
 use std::future::Future;
 
-use crate::handler::{BoxedHandler, IntoHandler};
 use crate::BotError;
+use crate::handler::{BoxedHandler, IntoHandler};
 
 /// Unified Bot trait that hides connection mode differences
 ///
@@ -46,6 +46,7 @@ pub struct BotBuilder {
 struct HandlerEntry {
     pattern: HandlerPattern,
     handler: BoxedHandler,
+    description: Option<String>,
 }
 
 #[derive(Clone)]
@@ -106,6 +107,27 @@ impl BotBuilder {
         self.handlers.push(HandlerEntry {
             pattern: HandlerPattern::Command(name.into()),
             handler: handler.into_handler(),
+            description: None,
+        });
+        self
+    }
+
+    /// Register a command handler with a description
+    ///
+    /// The description is used for slash command menus (e.g., Telegram's /command list).
+    pub fn command_with_description<H, Args>(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        handler: H,
+    ) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.handlers.push(HandlerEntry {
+            pattern: HandlerPattern::Command(name.into()),
+            handler: handler.into_handler(),
+            description: Some(description.into()),
         });
         self
     }
@@ -120,6 +142,7 @@ impl BotBuilder {
         self.handlers.push(HandlerEntry {
             pattern: HandlerPattern::Button(pattern.into()),
             handler: handler.into_handler(),
+            description: None,
         });
         self
     }
@@ -132,8 +155,24 @@ impl BotBuilder {
         self.handlers.push(HandlerEntry {
             pattern: HandlerPattern::Message,
             handler: handler.into_handler(),
+            description: None,
         });
         self
+    }
+
+    /// Get all registered commands with their descriptions
+    ///
+    /// Returns an iterator of (name, description) pairs.
+    /// Commands without descriptions are included with an empty string.
+    pub fn commands(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.handlers.iter().filter_map(|entry| {
+            if let HandlerPattern::Command(name) = &entry.pattern {
+                let desc = entry.description.as_deref().unwrap_or("");
+                Some((name.as_str(), desc))
+            } else {
+                None
+            }
+        })
     }
 
     /// Find a handler matching the event type and value

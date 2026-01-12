@@ -6,7 +6,9 @@ use http_kit::{Body, Endpoint, HttpError, Request, Response as HttpResponse, Sta
 
 use crate::client::TelegramClient;
 use crate::event::TelegramContextData;
-use crate::types::{InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup, Update, UpdateKind};
+use crate::types::{
+    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup, Update, UpdateKind,
+};
 
 /// Error type for the Telegram webhook endpoint
 #[derive(Debug)]
@@ -78,6 +80,24 @@ impl TelegramBot {
         self
     }
 
+    /// Register a command handler with description
+    ///
+    /// The description appears in Telegram's command menu (slash command suggestions).
+    pub fn command_with_description<H, Args>(
+        mut self,
+        name: impl Into<String>,
+        description: impl Into<String>,
+        handler: H,
+    ) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.builder = self
+            .builder
+            .command_with_description(name, description, handler);
+        self
+    }
+
     /// Register a button handler (callback query data pattern)
     ///
     /// Pattern can end with `*` for prefix matching (e.g., "confirm_*")
@@ -124,6 +144,20 @@ impl TelegramBot {
     /// ```
     pub async fn run_polling(self) -> Result<(), BotError> {
         let client = TelegramClient::new(&self.token);
+
+        // Register commands with Telegram's Bot API for slash command menu
+        let commands: Vec<BotCommand> = self
+            .builder
+            .commands()
+            .map(|(name, desc)| BotCommand::new(name, if desc.is_empty() { name } else { desc }))
+            .collect();
+
+        if !commands.is_empty() {
+            if let Err(e) = client.set_my_commands(&commands).await {
+                eprintln!("Warning: Failed to register commands: {}", e);
+            }
+        }
+
         let builder = Arc::new(self.builder);
 
         // Delete any existing webhook to enable polling
@@ -137,9 +171,7 @@ impl TelegramBot {
                     for update in updates {
                         offset = Some(update.update_id + 1);
                         // Process update directly (no spawn needed in polling mode)
-                        if let Err(e) =
-                            process_update_sync(&client, &builder, update).await
-                        {
+                        if let Err(e) = process_update_sync(&client, &builder, update).await {
                             eprintln!("Error handling update: {}", e);
                         }
                     }
@@ -180,7 +212,7 @@ impl TelegramWebhook {
         let (event_type, value) = match &update.kind {
             UpdateKind::Message(msg) => {
                 // Check if it's a command
-                let data = TelegramContextData::new(update.clone());
+                let data = TelegramContextData::new(update.clone(), self.client.clone());
                 if let Some(cmd_name) = data.command_name() {
                     ("command", cmd_name.to_string())
                 } else {
@@ -195,7 +227,7 @@ impl TelegramWebhook {
         let handler = self.builder.find_handler(event_type, &value);
 
         if let Some(handler) = handler {
-            let data = TelegramContextData::new(update.clone());
+            let data = TelegramContextData::new(update.clone(), self.client.clone());
             let ctx = Context::new(data);
 
             // Spawn handler as a separate task
@@ -221,7 +253,7 @@ async fn process_update_sync(
 ) -> Result<(), BotError> {
     let (event_type, value) = match &update.kind {
         UpdateKind::Message(msg) => {
-            let data = TelegramContextData::new(update.clone());
+            let data = TelegramContextData::new(update.clone(), client.clone());
             if let Some(cmd_name) = data.command_name() {
                 ("command", cmd_name.to_string())
             } else {
@@ -233,7 +265,7 @@ async fn process_update_sync(
     };
 
     if let Some(handler) = builder.find_handler(event_type, &value) {
-        let data = TelegramContextData::new(update.clone());
+        let data = TelegramContextData::new(update.clone(), client.clone());
         let ctx = Context::new(data);
         let response = handler.call(ctx).await;
         send_response(client, &update, response).await?;
@@ -245,19 +277,11 @@ async fn process_update_sync(
 async fn send_response(
     client: &TelegramClient,
     update: &Update,
-    response: Response,
+    mut response: Response,
 ) -> Result<(), BotError> {
     if response.is_empty() || response.is_acknowledge() {
         return Ok(());
     }
-
-    let content = response.content().unwrap_or("");
-    if content.is_empty() {
-        return Ok(());
-    }
-
-    // Build reply markup from components
-    let reply_markup = build_reply_markup(&response);
 
     // Get chat ID from update
     let chat_id = match &update.kind {
@@ -269,6 +293,32 @@ async fn send_response(
     if chat_id == 0 {
         return Ok(());
     }
+
+    // Handle file response
+    if response.is_file() {
+        if let Some(file_response) = response.take_file() {
+            // Show upload indicator
+            let _ = client.send_chat_action(chat_id, "upload_document").await;
+
+            return client
+                .send_document(
+                    chat_id,
+                    file_response.file,
+                    file_response.filename.as_deref(),
+                    file_response.caption.as_deref(),
+                )
+                .await;
+        }
+    }
+
+    // Handle text response
+    let content = response.content().unwrap_or("");
+    if content.is_empty() {
+        return Ok(());
+    }
+
+    // Build reply markup from components
+    let reply_markup = build_reply_markup(&response);
 
     client.send_message(chat_id, content, reply_markup).await
 }
@@ -347,9 +397,7 @@ impl Endpoint for TelegramWebhook {
             .map_err(|e| WebhookError(BotError::Other(e.to_string())))?;
 
         // Handle the update
-        self.handle(update)
-            .await
-            .map_err(WebhookError)?;
+        self.handle(update).await.map_err(WebhookError)?;
 
         // Return 200 OK
         Ok(HttpResponse::new(Body::from_bytes("OK")))

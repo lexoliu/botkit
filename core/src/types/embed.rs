@@ -66,7 +66,12 @@ impl Embed {
     }
 
     /// Add a field
-    pub fn field(mut self, name: impl Into<String>, value: impl Into<String>, inline: bool) -> Self {
+    pub fn field(
+        mut self,
+        name: impl Into<String>,
+        value: impl Into<String>,
+        inline: bool,
+    ) -> Self {
         self.fields.push(EmbedField {
             name: name.into(),
             value: value.into(),
@@ -85,7 +90,11 @@ impl Embed {
     }
 
     /// Set the footer with an icon
-    pub fn footer_with_icon(mut self, text: impl Into<String>, icon_url: impl Into<String>) -> Self {
+    pub fn footer_with_icon(
+        mut self,
+        text: impl Into<String>,
+        icon_url: impl Into<String>,
+    ) -> Self {
         self.footer = Some(EmbedFooter {
             text: text.into(),
             icon_url: Some(icon_url.into()),

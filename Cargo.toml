@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core", "discord", "telegram", "examples"]
+members = ["core", "discord", "telegram", "matrix", "examples"]
 
 [workspace.package]
 edition = "2024"
@@ -12,6 +12,7 @@ repository = "https://github.com/example/botkit"
 botkit-core = { path = "core" }
 botkit-discord = { path = "discord" }
 botkit-telegram = { path = "telegram" }
+botkit-matrix = { path = "matrix" }
 
 # HTTP foundation
 http-kit = "0.4.2"

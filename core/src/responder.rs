@@ -80,3 +80,24 @@ impl<T: IntoResponse, E: std::fmt::Display + Send> IntoResponse for Result<T, E>
         }
     }
 }
+
+// File response
+impl IntoResponse for async_fs::File {
+    fn into_response(self) -> Response {
+        Response::file(self)
+    }
+}
+
+// File with caption (static str)
+impl IntoResponse for (async_fs::File, &'static str) {
+    fn into_response(self) -> Response {
+        Response::file(self.0).with_caption(self.1)
+    }
+}
+
+// File with caption (String)
+impl IntoResponse for (async_fs::File, String) {
+    fn into_response(self) -> Response {
+        Response::file(self.0).with_caption(self.1)
+    }
+}

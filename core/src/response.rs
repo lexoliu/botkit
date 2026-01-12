@@ -16,6 +16,8 @@ enum ResponseKind {
     Text(TextResponse),
     /// Acknowledge without visible response (for deferred responses)
     Acknowledge,
+    /// File attachment
+    File(FileResponse),
 }
 
 struct TextResponse {
@@ -23,6 +25,16 @@ struct TextResponse {
     embeds: Vec<Embed>,
     components: Vec<Component>,
     ephemeral: bool,
+}
+
+/// File response data
+pub struct FileResponse {
+    /// The file to send
+    pub file: async_fs::File,
+    /// Optional filename (used for content-disposition)
+    pub filename: Option<String>,
+    /// Optional caption to accompany the file
+    pub caption: Option<String>,
 }
 
 impl Response {
@@ -88,6 +100,33 @@ impl Response {
         self
     }
 
+    /// Create a file response
+    pub fn file(file: async_fs::File) -> Self {
+        Self {
+            kind: ResponseKind::File(FileResponse {
+                file,
+                filename: None,
+                caption: None,
+            }),
+        }
+    }
+
+    /// Set the filename for a file response
+    pub fn with_filename(mut self, name: impl Into<String>) -> Self {
+        if let ResponseKind::File(ref mut f) = self.kind {
+            f.filename = Some(name.into());
+        }
+        self
+    }
+
+    /// Set the caption for a file response
+    pub fn with_caption(mut self, caption: impl Into<String>) -> Self {
+        if let ResponseKind::File(ref mut f) = self.kind {
+            f.caption = Some(caption.into());
+        }
+        self
+    }
+
     /// Check if this is an empty response
     pub fn is_empty(&self) -> bool {
         matches!(self.kind, ResponseKind::Empty)
@@ -127,6 +166,24 @@ impl Response {
         match &self.kind {
             ResponseKind::Text(t) => t.ephemeral,
             _ => false,
+        }
+    }
+
+    /// Check if this is a file response
+    pub fn is_file(&self) -> bool {
+        matches!(self.kind, ResponseKind::File(_))
+    }
+
+    /// Take the file response data, leaving Empty in its place
+    ///
+    /// This consumes the file data, so it can only be called once.
+    pub fn take_file(&mut self) -> Option<FileResponse> {
+        match std::mem::replace(&mut self.kind, ResponseKind::Empty) {
+            ResponseKind::File(f) => Some(f),
+            other => {
+                self.kind = other;
+                None
+            }
         }
     }
 }

@@ -1,3 +1,4 @@
+pub mod action;
 mod bot;
 mod client;
 mod event;

@@ -68,10 +68,8 @@ impl GatewayConnection {
 
             let text = match msg {
                 WebSocketMessage::Text(t) => t.to_string(),
-                WebSocketMessage::Binary(b) => {
-                    String::from_utf8(b.to_vec())
-                        .map_err(|e| GatewayError::Protocol(e.to_string()))?
-                }
+                WebSocketMessage::Binary(b) => String::from_utf8(b.to_vec())
+                    .map_err(|e| GatewayError::Protocol(e.to_string()))?,
                 WebSocketMessage::Close => {
                     return Err(GatewayError::Closed);
                 }

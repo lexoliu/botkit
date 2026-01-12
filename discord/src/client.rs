@@ -1,4 +1,5 @@
 use botkit_core::BotError;
+use futures_lite::io::AsyncReadExt;
 use zenwave::Client;
 
 const API_BASE: &str = "https://discord.com/api/v10";
@@ -112,6 +113,84 @@ impl DiscordClient {
         if !response.status().is_success() {
             return Err(BotError::Api(format!(
                 "Failed to edit response: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Trigger typing indicator in a channel
+    pub async fn trigger_typing(&self, channel_id: &str) -> Result<(), BotError> {
+        let url = format!("{}/channels/{}/typing", API_BASE, channel_id);
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to trigger typing: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Send a file to a channel
+    pub async fn send_file(
+        &self,
+        channel_id: &str,
+        mut file: async_fs::File,
+        filename: &str,
+        content: Option<&str>,
+    ) -> Result<(), BotError> {
+        use zenwave::multipart::{Multipart, MultipartPart};
+
+        // Read file contents
+        let mut file_contents = Vec::new();
+        file.read_to_end(&mut file_contents)
+            .await
+            .map_err(|e| BotError::Other(e.to_string()))?;
+
+        let url = format!("{}/channels/{}/messages", API_BASE, channel_id);
+
+        // Build multipart form
+        let mut multipart = Multipart::new();
+
+        // payload_json field (message content)
+        if let Some(content) = content {
+            let payload = serde_json::json!({ "content": content }).to_string();
+            multipart.push(MultipartPart::text("payload_json", payload));
+        }
+
+        // file field
+        multipart.push(MultipartPart::binary(
+            "files[0]",
+            filename.to_owned(),
+            "application/octet-stream",
+            file_contents,
+        ));
+
+        let (boundary, body) = multipart.encode();
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .header("Content-Type", content_type)
+            .bytes_body(body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to send file: {}",
                 response.status()
             )));
         }

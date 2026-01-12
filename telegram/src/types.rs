@@ -149,3 +149,22 @@ impl InlineKeyboardButton {
 pub enum ReplyMarkup {
     InlineKeyboard(InlineKeyboardMarkup),
 }
+
+/// Bot command for setMyCommands API
+#[derive(Debug, Clone, Serialize)]
+pub struct BotCommand {
+    /// Command name without the leading slash
+    pub command: String,
+    /// Description shown in the command menu
+    pub description: String,
+}
+
+impl BotCommand {
+    /// Create a new bot command
+    pub fn new(command: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            description: description.into(),
+        }
+    }
+}

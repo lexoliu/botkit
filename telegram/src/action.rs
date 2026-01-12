@@ -2,8 +2,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
-use botkit_core::action::{ChatAction, ChatActionSender};
 use botkit_core::BotError;
+use botkit_core::action::{ChatAction, ChatActionSender};
 
 use crate::client::TelegramClient;
 

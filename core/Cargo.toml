@@ -11,4 +11,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 futures-lite.workspace = true
+executor-core.workspace = true
 async-channel = "2"
+async-fs = "2"
+async-io = "2"

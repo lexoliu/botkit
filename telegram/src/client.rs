@@ -1,7 +1,8 @@
 use botkit_core::BotError;
+use futures_lite::io::AsyncReadExt;
 use zenwave::Client;
 
-use crate::types::ReplyMarkup;
+use crate::types::{BotCommand, ReplyMarkup};
 
 const API_BASE: &str = "https://api.telegram.org";
 
@@ -217,5 +218,112 @@ impl TelegramClient {
             serde_json::from_str(&body_str).map_err(|e| BotError::Api(e.to_string()))?;
 
         Ok(parsed.result)
+    }
+
+    /// Send a chat action (typing, uploading, etc.)
+    pub async fn send_chat_action(&self, chat_id: i64, action: &str) -> Result<(), BotError> {
+        let body = serde_json::json!({
+            "chat_id": chat_id,
+            "action": action,
+        });
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&self.api_url("sendChatAction"))
+            .json_body(&body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to send chat action: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Set bot commands for the menu
+    ///
+    /// Registers commands with Telegram so they appear in the command menu.
+    pub async fn set_my_commands(&self, commands: &[BotCommand]) -> Result<(), BotError> {
+        let body = serde_json::json!({
+            "commands": commands,
+        });
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&self.api_url("setMyCommands"))
+            .json_body(&body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to set commands: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Send a document/file
+    pub async fn send_document(
+        &self,
+        chat_id: i64,
+        mut file: async_fs::File,
+        filename: Option<&str>,
+        caption: Option<&str>,
+    ) -> Result<(), BotError> {
+        use zenwave::multipart::{Multipart, MultipartPart};
+
+        // Read file contents
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)
+            .await
+            .map_err(|e| BotError::Other(e.to_string()))?;
+
+        let filename = filename.unwrap_or("file");
+
+        // Build multipart form
+        let mut multipart = Multipart::new();
+
+        // chat_id field
+        multipart.push(MultipartPart::text("chat_id", chat_id.to_string()));
+
+        // caption field (if provided)
+        if let Some(caption) = caption {
+            multipart.push(MultipartPart::text("caption", caption));
+        }
+
+        // document field (file)
+        multipart.push(MultipartPart::binary(
+            "document",
+            filename.to_owned(),
+            "application/octet-stream",
+            contents,
+        ));
+
+        let (boundary, body) = multipart.encode();
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&self.api_url("sendDocument"))
+            .header("Content-Type", content_type)
+            .bytes_body(body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to send document: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use std::future::Future;
 
+use crate::action::ChatActionGuard;
 use crate::context::Context;
 
 /// Trait for extracting typed data from bot context
@@ -137,5 +138,25 @@ impl<T1: FromContext, T2: FromContext, T3: FromContext, T4: FromContext> FromCon
         let t3 = T3::from_context(ctx).await;
         let t4 = T4::from_context(ctx).await;
         (t1, t2, t3, t4)
+    }
+}
+
+/// Typing indicator extractor
+///
+/// Automatically starts a typing indicator when extracted.
+/// The indicator stops when the handler completes (guard is dropped).
+///
+/// # Example
+/// ```ignore
+/// async fn slow_handler(_typing: Typing) -> String {
+///     expensive_work().await;
+///     "Done!"
+/// }
+/// ```
+pub struct Typing(pub Option<ChatActionGuard>);
+
+impl FromContext for Typing {
+    async fn from_context(ctx: &Context) -> Self {
+        Self(ctx.typing())
     }
 }
