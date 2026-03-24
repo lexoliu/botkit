@@ -2,9 +2,15 @@ mod intents;
 
 pub use intents::GatewayIntents;
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::Duration;
+
+use async_io::Timer;
+use executor_core::spawn;
 use serde::Deserialize;
 use serde_json::Value;
-use zenwave::websocket::WebSocketMessage;
+use zenwave::websocket::{WebSocketMessage, WebSocketReceiver, WebSocketSender};
 
 use crate::types::Interaction;
 
@@ -30,26 +36,31 @@ impl Gateway {
         let ws = zenwave::websocket::connect(GATEWAY_URL)
             .await
             .map_err(|e| GatewayError::Connection(e.to_string()))?;
+        let (sender, receiver) = ws.split();
 
         Ok(GatewayConnection {
-            ws,
+            sender,
+            receiver,
             token: self.token.clone(),
             intents: self.intents,
             session_id: None,
-            sequence: None,
+            sequence: Arc::new(AtomicU64::new(NO_SEQUENCE)),
             heartbeat_interval: None,
+            heartbeat: None,
         })
     }
 }
 
 /// Active gateway connection
 pub struct GatewayConnection {
-    ws: zenwave::websocket::WebSocket,
+    sender: WebSocketSender,
+    receiver: WebSocketReceiver,
     token: String,
     intents: GatewayIntents,
     session_id: Option<String>,
-    sequence: Option<u64>,
+    sequence: Arc<AtomicU64>,
     heartbeat_interval: Option<u64>,
+    heartbeat: Option<HeartbeatLoop>,
 }
 
 impl GatewayConnection {
@@ -57,7 +68,7 @@ impl GatewayConnection {
     pub async fn recv(&mut self) -> Result<GatewayEvent, GatewayError> {
         loop {
             let msg = self
-                .ws
+                .receiver
                 .recv()
                 .await
                 .map_err(|e| GatewayError::Connection(e.to_string()))?;
@@ -81,7 +92,7 @@ impl GatewayConnection {
 
             // Update sequence number
             if let Some(s) = payload.s {
-                self.sequence = Some(s);
+                self.sequence.store(s, Ordering::Release);
             }
 
             match payload.op {
@@ -109,6 +120,7 @@ impl GatewayConnection {
                         if let Some(interval) = d.get("heartbeat_interval").and_then(|v| v.as_u64())
                         {
                             self.heartbeat_interval = Some(interval);
+                            self.start_heartbeating(Duration::from_millis(interval));
                         }
                     }
                     self.identify().await?;
@@ -168,7 +180,7 @@ impl GatewayConnection {
             }
         });
 
-        self.ws
+        self.sender
             .send_text(serde_json::to_string(&identify).unwrap())
             .await
             .map_err(|e| GatewayError::Connection(e.to_string()))?;
@@ -178,17 +190,19 @@ impl GatewayConnection {
 
     /// Send a heartbeat
     pub async fn send_heartbeat(&mut self) -> Result<(), GatewayError> {
-        let heartbeat = serde_json::json!({
-            "op": 1,
-            "d": self.sequence
-        });
+        send_heartbeat_frame(&self.sender, &self.sequence).await
+    }
 
-        self.ws
-            .send_text(serde_json::to_string(&heartbeat).unwrap())
-            .await
-            .map_err(|e| GatewayError::Connection(e.to_string()))?;
+    fn start_heartbeating(&mut self, interval: Duration) {
+        if self.heartbeat.is_some() {
+            return;
+        }
 
-        Ok(())
+        self.heartbeat = Some(HeartbeatLoop::spawn(
+            self.sender.clone(),
+            Arc::clone(&self.sequence),
+            interval,
+        ));
     }
 
     /// Get the heartbeat interval in milliseconds
@@ -197,12 +211,33 @@ impl GatewayConnection {
     }
 
     /// Close the connection (consumes self)
-    pub async fn close(self) -> Result<(), GatewayError> {
-        self.ws
+    pub async fn close(mut self) -> Result<(), GatewayError> {
+        self.heartbeat.take();
+        self.sender
             .close()
             .await
             .map_err(|e| GatewayError::Connection(e.to_string()))
     }
+}
+
+async fn send_heartbeat_frame(
+    sender: &WebSocketSender,
+    sequence: &AtomicU64,
+) -> Result<(), GatewayError> {
+    let sequence = match sequence.load(Ordering::Acquire) {
+        NO_SEQUENCE => None,
+        value => Some(value),
+    };
+
+    let heartbeat = serde_json::json!({
+        "op": 1,
+        "d": sequence
+    });
+
+    sender
+        .send_text(serde_json::to_string(&heartbeat).unwrap())
+        .await
+        .map_err(|e| GatewayError::Connection(e.to_string()))
 }
 
 /// Gateway payload structure
@@ -234,4 +269,40 @@ pub enum GatewayError {
 
     #[error("connection closed")]
     Closed,
+}
+
+const NO_SEQUENCE: u64 = u64::MAX;
+
+struct HeartbeatLoop {
+    stop_flag: Arc<AtomicBool>,
+}
+
+impl HeartbeatLoop {
+    fn spawn(sender: WebSocketSender, sequence: Arc<AtomicU64>, interval: Duration) -> Self {
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let task_stop_flag = Arc::clone(&stop_flag);
+
+        spawn(async move {
+            loop {
+                Timer::after(interval).await;
+
+                if task_stop_flag.load(Ordering::Acquire) {
+                    break;
+                }
+
+                if send_heartbeat_frame(&sender, &sequence).await.is_err() {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        Self { stop_flag }
+    }
+}
+
+impl Drop for HeartbeatLoop {
+    fn drop(&mut self) {
+        self.stop_flag.store(true, Ordering::Release);
+    }
 }

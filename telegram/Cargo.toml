@@ -16,3 +16,4 @@ thiserror.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
 async-fs = "2"
+tracing = "0.1"

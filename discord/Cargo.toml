@@ -16,3 +16,5 @@ futures-lite.workspace = true
 executor-core.workspace = true
 async-channel = "2"
 async-fs = "2"
+async-io = "2"
+tracing = "0.1"
