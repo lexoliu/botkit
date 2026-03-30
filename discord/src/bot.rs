@@ -164,8 +164,8 @@ impl DiscordBot {
         }
 
         // File responses need to go through the interaction webhook flow.
-        if response.is_file() {
-            if let Some(file_response) = response.take_file() {
+        if response.is_file()
+            && let Some(file_response) = response.take_file() {
                 if let Some(channel_id) = &interaction.channel_id {
                     let _ = client.trigger_typing(channel_id).await;
                 }
@@ -189,7 +189,6 @@ impl DiscordBot {
                     )
                     .await;
             }
-        }
 
         // Build response data
         let mut data = serde_json::json!({

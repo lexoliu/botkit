@@ -1,3 +1,4 @@
+#![allow(clippy::type_complexity)]
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

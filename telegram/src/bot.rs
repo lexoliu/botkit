@@ -152,11 +152,10 @@ impl TelegramBot {
             .map(|(name, desc)| BotCommand::new(name, if desc.is_empty() { name } else { desc }))
             .collect();
 
-        if !commands.is_empty() {
-            if let Err(e) = client.set_my_commands(&commands).await {
+        if !commands.is_empty()
+            && let Err(e) = client.set_my_commands(&commands).await {
                 warn!("Failed to register commands: {}", e);
             }
-        }
 
         let builder = Arc::new(self.builder);
 
@@ -303,8 +302,8 @@ async fn send_response(
         return Ok(());
     }
 
-    if response.is_file() {
-        if let Some(file_response) = response.take_file() {
+    if response.is_file()
+        && let Some(file_response) = response.take_file() {
             let _ = client.send_chat_action(chat_id, "upload_document").await;
 
             return client
@@ -316,7 +315,6 @@ async fn send_response(
                 )
                 .await;
         }
-    }
 
     let content = response.content().unwrap_or("");
     if content.is_empty() {
@@ -348,11 +346,7 @@ fn build_reply_markup(response: &Response) -> Option<ReplyMarkup> {
                         Component::Button(btn) => {
                             if let Some(url) = &btn.url {
                                 Some(InlineKeyboardButton::url(&btn.label, url))
-                            } else if let Some(custom_id) = &btn.custom_id {
-                                Some(InlineKeyboardButton::callback(&btn.label, custom_id))
-                            } else {
-                                None
-                            }
+                            } else { btn.custom_id.as_ref().map(|custom_id| InlineKeyboardButton::callback(&btn.label, custom_id)) }
                         }
                         _ => None,
                     })

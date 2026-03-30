@@ -36,7 +36,7 @@ impl TelegramClient {
     {
         let mut client = zenwave::client();
         let response = client
-            .post(&self.api_url(method))
+            .post(self.api_url(method))
             .json_body(body)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
@@ -55,7 +55,7 @@ impl TelegramClient {
     {
         let mut client = zenwave::client();
         let response = client
-            .post(&self.api_url(method))
+            .post(self.api_url(method))
             .header("Content-Type", content_type)
             .bytes_body(body)
             .await
