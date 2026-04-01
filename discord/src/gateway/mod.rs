@@ -118,10 +118,10 @@ impl GatewayConnection {
                 10 => {
                     if let Some(d) = payload.d
                         && let Some(interval) = d.get("heartbeat_interval").and_then(|v| v.as_u64())
-                        {
-                            self.heartbeat_interval = Some(interval);
-                            self.start_heartbeating(Duration::from_millis(interval));
-                        }
+                    {
+                        self.heartbeat_interval = Some(interval);
+                        self.start_heartbeating(Duration::from_millis(interval));
+                    }
                     self.identify().await?;
                 }
                 // Heartbeat ACK
@@ -250,6 +250,7 @@ struct GatewayPayload {
 
 /// Gateway events
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum GatewayEvent {
     Ready,
     InteractionCreate(Interaction),
