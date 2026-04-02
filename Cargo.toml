@@ -5,7 +5,8 @@ members = ["core", "discord", "telegram", "matrix", "examples"]
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/example/botkit"
+readme = "README.md"
+repository = "https://github.com/lexoliu/botkit"
 
 [workspace.dependencies]
 # Internal crates

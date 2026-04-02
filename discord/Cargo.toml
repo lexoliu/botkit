@@ -3,6 +3,8 @@ name = "botkit-discord"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 description = "Discord implementation for botkit"
 
 [dependencies]
