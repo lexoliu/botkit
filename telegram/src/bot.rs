@@ -153,9 +153,10 @@ impl TelegramBot {
             .collect();
 
         if !commands.is_empty()
-            && let Err(e) = client.set_my_commands(&commands).await {
-                warn!("Failed to register commands: {}", e);
-            }
+            && let Err(e) = client.set_my_commands(&commands).await
+        {
+            warn!("Failed to register commands: {}", e);
+        }
 
         let builder = Arc::new(self.builder);
 
@@ -303,18 +304,19 @@ async fn send_response(
     }
 
     if response.is_file()
-        && let Some(file_response) = response.take_file() {
-            let _ = client.send_chat_action(chat_id, "upload_document").await;
+        && let Some(file_response) = response.take_file()
+    {
+        let _ = client.send_chat_action(chat_id, "upload_document").await;
 
-            return client
-                .send_document(
-                    chat_id,
-                    file_response.file,
-                    file_response.filename.as_deref(),
-                    file_response.caption.as_deref(),
-                )
-                .await;
-        }
+        return client
+            .send_document(
+                chat_id,
+                file_response.file,
+                file_response.filename.as_deref(),
+                file_response.caption.as_deref(),
+            )
+            .await;
+    }
 
     let content = response.content().unwrap_or("");
     if content.is_empty() {
@@ -346,7 +348,11 @@ fn build_reply_markup(response: &Response) -> Option<ReplyMarkup> {
                         Component::Button(btn) => {
                             if let Some(url) = &btn.url {
                                 Some(InlineKeyboardButton::url(&btn.label, url))
-                            } else { btn.custom_id.as_ref().map(|custom_id| InlineKeyboardButton::callback(&btn.label, custom_id)) }
+                            } else {
+                                btn.custom_id.as_ref().map(|custom_id| {
+                                    InlineKeyboardButton::callback(&btn.label, custom_id)
+                                })
+                            }
                         }
                         _ => None,
                     })

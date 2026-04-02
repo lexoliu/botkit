@@ -4,9 +4,27 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
 use async_io::Timer;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::sleep;
 
 use crate::BotError;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + 'a>>;
+#[cfg(target_arch = "wasm32")]
+pub type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + 'a>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait ChatActionSenderBounds: Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + Sync + ?Sized> ChatActionSenderBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait ChatActionSenderBounds {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> ChatActionSenderBounds for T {}
 
 /// Chat action types for platform indicators
 ///
@@ -41,12 +59,9 @@ pub enum ChatAction {
 /// Trait for sending chat actions to a channel
 ///
 /// Platform implementations define how to send actions and their expiration times.
-pub trait ChatActionSender: Send + Sync + 'static {
+pub trait ChatActionSender: ChatActionSenderBounds + 'static {
     /// Send a chat action to the specified channel
-    fn send_action(
-        &self,
-        action: ChatAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + '_>>;
+    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_>;
 
     /// Duration after which the action indicator expires
     ///
@@ -87,13 +102,13 @@ impl ChatActionGuard {
         let expiry = sender.action_expiry();
         let renewal_interval = Duration::from_millis((expiry.as_millis() as u64 * 80) / 100);
 
-        executor_core::spawn(async move {
+        spawn_renewal(async move {
             // Send initial action
             let _ = sender.send_action(action).await;
 
             loop {
                 // Sleep for renewal interval
-                Timer::after(renewal_interval).await;
+                sleep_for(renewal_interval).await;
 
                 // Check if we should stop
                 if flag_clone.load(Ordering::Acquire) {
@@ -105,11 +120,30 @@ impl ChatActionGuard {
                     break;
                 }
             }
-        })
-        .detach();
+        });
 
         Self { stop_flag }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn sleep_for(duration: Duration) {
+    Timer::after(duration).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_renewal(task: impl Future<Output = ()> + Send + 'static) {
+    executor_core::spawn(task).detach();
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn sleep_for(duration: Duration) {
+    sleep(duration).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+fn spawn_renewal(task: impl Future<Output = ()> + 'static) {
+    executor_core::spawn_local(task).detach();
 }
 
 impl Drop for ChatActionGuard {

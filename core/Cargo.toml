@@ -8,12 +8,15 @@ repository.workspace = true
 description = "Core abstractions for the botkit unified bot framework"
 
 [dependencies]
-http-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-futures-lite.workspace = true
 executor-core.workspace = true
 async-channel = "2"
 async-fs = "2"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 async-io = "2"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { version = "0.3", features = ["futures"] }

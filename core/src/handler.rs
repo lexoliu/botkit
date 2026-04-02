@@ -8,6 +8,41 @@ use crate::extractor::FromContext;
 use crate::responder::IntoResponse;
 use crate::response::Response;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
+#[cfg(target_arch = "wasm32")]
+pub type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + 'a>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait HandlerBounds: Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + Sync + ?Sized> HandlerBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait HandlerBounds {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> HandlerBounds for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait HandlerFnBounds: Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + Sync + ?Sized> HandlerFnBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait HandlerFnBounds {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> HandlerFnBounds for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait HandlerFutureBounds: Future + Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Future + Send + ?Sized> HandlerFutureBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait HandlerFutureBounds: Future {}
+#[cfg(target_arch = "wasm32")]
+impl<T: Future + ?Sized> HandlerFutureBounds for T {}
+
 /// Trait for bot event handlers
 ///
 /// Handlers use the extractor/responder pattern - they extract typed
@@ -36,9 +71,9 @@ use crate::response::Response;
 ///     Response::text("Done")
 /// }
 /// ```
-pub trait Handler: Send + Sync + 'static {
+pub trait Handler: HandlerBounds + 'static {
     /// Handle the event and produce a response
-    fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>>;
+    fn call(&self, ctx: Context) -> HandlerCallFuture<'_>;
 }
 
 /// Boxed handler for storage
@@ -53,8 +88,8 @@ pub trait IntoHandler<Args> {
 // Zero args
 impl<F, Fut, R> IntoHandler<()> for F
 where
-    F: Fn() -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    F: Fn() -> Fut + HandlerFnBounds + 'static,
+    Fut: HandlerFutureBounds<Output = R> + 'static,
     R: IntoResponse + 'static,
 {
     fn into_handler(self) -> BoxedHandler {
@@ -62,11 +97,11 @@ where
 
         impl<F, Fut, R> Handler for H<F>
         where
-            F: Fn() -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
+            F: Fn() -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
             R: IntoResponse + 'static,
         {
-            fn call(&self, _ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>> {
+            fn call(&self, _ctx: Context) -> HandlerCallFuture<'_> {
                 let fut = (self.0)();
                 Box::pin(async move { fut.await.into_response() })
             }
@@ -79,8 +114,8 @@ where
 // One arg
 impl<F, Fut, T1, R> IntoHandler<(T1,)> for F
 where
-    F: Fn(T1) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    F: Fn(T1) -> Fut + HandlerFnBounds + 'static,
+    Fut: HandlerFutureBounds<Output = R> + 'static,
     T1: FromContext + 'static,
     R: IntoResponse + 'static,
 {
@@ -93,12 +128,12 @@ where
 
         impl<F, Fut, T1, R> Handler for H<F, T1>
         where
-            F: Fn(T1) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
+            F: Fn(T1) -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
             T1: FromContext + 'static,
             R: IntoResponse + 'static,
         {
-            fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>> {
+            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
                 Box::pin(async move {
                     let t1 = T1::from_context(&ctx).await;
                     (self.0)(t1).await.into_response()
@@ -113,8 +148,8 @@ where
 // Two args
 impl<F, Fut, T1, T2, R> IntoHandler<(T1, T2)> for F
 where
-    F: Fn(T1, T2) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    F: Fn(T1, T2) -> Fut + HandlerFnBounds + 'static,
+    Fut: HandlerFutureBounds<Output = R> + 'static,
     T1: FromContext + 'static,
     T2: FromContext + 'static,
     R: IntoResponse + 'static,
@@ -127,13 +162,13 @@ where
 
         impl<F, Fut, T1, T2, R> Handler for H<F, T1, T2>
         where
-            F: Fn(T1, T2) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
+            F: Fn(T1, T2) -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
             T1: FromContext + 'static,
             T2: FromContext + 'static,
             R: IntoResponse + 'static,
         {
-            fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>> {
+            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
                 Box::pin(async move {
                     let t1 = T1::from_context(&ctx).await;
                     let t2 = T2::from_context(&ctx).await;
@@ -149,8 +184,8 @@ where
 // Three args
 impl<F, Fut, T1, T2, T3, R> IntoHandler<(T1, T2, T3)> for F
 where
-    F: Fn(T1, T2, T3) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    F: Fn(T1, T2, T3) -> Fut + HandlerFnBounds + 'static,
+    Fut: HandlerFutureBounds<Output = R> + 'static,
     T1: FromContext + 'static,
     T2: FromContext + 'static,
     T3: FromContext + 'static,
@@ -164,14 +199,14 @@ where
 
         impl<F, Fut, T1, T2, T3, R> Handler for H<F, T1, T2, T3>
         where
-            F: Fn(T1, T2, T3) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
+            F: Fn(T1, T2, T3) -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
             T1: FromContext + 'static,
             T2: FromContext + 'static,
             T3: FromContext + 'static,
             R: IntoResponse + 'static,
         {
-            fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>> {
+            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
                 Box::pin(async move {
                     let t1 = T1::from_context(&ctx).await;
                     let t2 = T2::from_context(&ctx).await;
@@ -188,8 +223,8 @@ where
 // Four args
 impl<F, Fut, T1, T2, T3, T4, R> IntoHandler<(T1, T2, T3, T4)> for F
 where
-    F: Fn(T1, T2, T3, T4) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = R> + Send + 'static,
+    F: Fn(T1, T2, T3, T4) -> Fut + HandlerFnBounds + 'static,
+    Fut: HandlerFutureBounds<Output = R> + 'static,
     T1: FromContext + 'static,
     T2: FromContext + 'static,
     T3: FromContext + 'static,
@@ -204,15 +239,15 @@ where
 
         impl<F, Fut, T1, T2, T3, T4, R> Handler for H<F, T1, T2, T3, T4>
         where
-            F: Fn(T1, T2, T3, T4) -> Fut + Send + Sync + 'static,
-            Fut: Future<Output = R> + Send + 'static,
+            F: Fn(T1, T2, T3, T4) -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
             T1: FromContext + 'static,
             T2: FromContext + 'static,
             T3: FromContext + 'static,
             T4: FromContext + 'static,
             R: IntoResponse + 'static,
         {
-            fn call(&self, ctx: Context) -> Pin<Box<dyn Future<Output = Response> + Send + '_>> {
+            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
                 Box::pin(async move {
                     let t1 = T1::from_context(&ctx).await;
                     let t2 = T2::from_context(&ctx).await;

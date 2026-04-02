@@ -9,15 +9,11 @@ description = "Matrix implementation for botkit"
 
 [dependencies]
 botkit-core.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-futures-lite.workspace = true
-executor-core.workspace = true
 tracing = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-matrix-sdk = { version = "0.8", default-features = false, features = ["e2e-encryption", "rustls-tls", "sqlite"] }
+matrix-sdk = { version = "0.16", default-features = false, features = ["bundled-sqlite", "e2e-encryption", "rustls-tls", "sqlite"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-matrix-sdk = { version = "0.8", default-features = false, features = ["e2e-encryption", "js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+matrix-sdk = { version = "0.16", default-features = false, features = ["e2e-encryption", "js", "rustls-tls"] }

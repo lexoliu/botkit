@@ -165,30 +165,31 @@ impl DiscordBot {
 
         // File responses need to go through the interaction webhook flow.
         if response.is_file()
-            && let Some(file_response) = response.take_file() {
-                if let Some(channel_id) = &interaction.channel_id {
-                    let _ = client.trigger_typing(channel_id).await;
-                }
-
-                client
-                    .respond_interaction(
-                        &interaction.id,
-                        &interaction.token,
-                        5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-                        serde_json::json!({}),
-                    )
-                    .await?;
-
-                let filename = file_response.filename.as_deref().unwrap_or("file");
-                return client
-                    .send_followup_file(
-                        &interaction.token,
-                        file_response.file,
-                        filename,
-                        file_response.caption.as_deref(),
-                    )
-                    .await;
+            && let Some(file_response) = response.take_file()
+        {
+            if let Some(channel_id) = &interaction.channel_id {
+                let _ = client.trigger_typing(channel_id).await;
             }
+
+            client
+                .respond_interaction(
+                    &interaction.id,
+                    &interaction.token,
+                    5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+                    serde_json::json!({}),
+                )
+                .await?;
+
+            let filename = file_response.filename.as_deref().unwrap_or("file");
+            return client
+                .send_followup_file(
+                    &interaction.token,
+                    file_response.file,
+                    filename,
+                    file_response.caption.as_deref(),
+                )
+                .await;
+        }
 
         // Build response data
         let mut data = serde_json::json!({
