@@ -1,9 +1,6 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
-use botkit_core::BotError;
-use botkit_core::action::{ChatAction, ChatActionSender};
+use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
 
 use crate::client::TelegramClient;
 
@@ -41,10 +38,7 @@ impl TelegramActionSender {
 }
 
 impl ChatActionSender for TelegramActionSender {
-    fn send_action(
-        &self,
-        action: ChatAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + '_>> {
+    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_> {
         Box::pin(async move {
             self.client
                 .send_chat_action(self.chat_id, Self::action_string(action))

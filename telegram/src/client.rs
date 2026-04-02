@@ -1,5 +1,6 @@
 use botkit_core::BotError;
 use futures_lite::io::AsyncReadExt;
+use serde::de::DeserializeOwned;
 use zenwave::Client;
 
 use crate::types::{BotCommand, ReplyMarkup};
@@ -29,6 +30,64 @@ impl TelegramClient {
         format!("{}/bot{}/{}", API_BASE, self.token, method)
     }
 
+    async fn post_json<T>(&self, method: &str, body: &serde_json::Value) -> Result<T, BotError>
+    where
+        T: DeserializeOwned,
+    {
+        let mut client = zenwave::client();
+        let response = client
+            .post(self.api_url(method))
+            .json_body(body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        self.decode_response(method, response).await
+    }
+
+    async fn post_multipart<T>(
+        &self,
+        method: &str,
+        content_type: String,
+        body: Vec<u8>,
+    ) -> Result<T, BotError>
+    where
+        T: DeserializeOwned,
+    {
+        let mut client = zenwave::client();
+        let response = client
+            .post(self.api_url(method))
+            .header("Content-Type", content_type)
+            .bytes_body(body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        self.decode_response(method, response).await
+    }
+
+    async fn decode_response<T>(
+        &self,
+        method: &str,
+        response: http_kit::Response,
+    ) -> Result<T, BotError>
+    where
+        T: DeserializeOwned,
+    {
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Telegram {method} failed with HTTP {}",
+                response.status()
+            )));
+        }
+
+        let body = response
+            .into_body()
+            .into_string()
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        parse_api_response(method, &body)
+    }
+
     /// Send a text message
     pub async fn send_message(
         &self,
@@ -42,23 +101,11 @@ impl TelegramClient {
         });
 
         if let Some(markup) = reply_markup {
-            body["reply_markup"] = serde_json::to_value(markup).unwrap_or_default();
+            body["reply_markup"] = serde_json::to_value(markup)
+                .map_err(|e| BotError::Other(format!("failed to serialize reply markup: {e}")))?;
         }
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("sendMessage"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send message: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("sendMessage", &body).await?;
         Ok(())
     }
 
@@ -77,23 +124,11 @@ impl TelegramClient {
         });
 
         if let Some(markup) = reply_markup {
-            body["reply_markup"] = serde_json::to_value(markup).unwrap_or_default();
+            body["reply_markup"] = serde_json::to_value(markup)
+                .map_err(|e| BotError::Other(format!("failed to serialize reply markup: {e}")))?;
         }
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("editMessageText"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to edit message: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("editMessageText", &body).await?;
         Ok(())
     }
 
@@ -113,20 +148,7 @@ impl TelegramClient {
             body["text"] = serde_json::json!(text);
         }
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("answerCallbackQuery"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to answer callback query: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("answerCallbackQuery", &body).await?;
         Ok(())
     }
 
@@ -136,20 +158,7 @@ impl TelegramClient {
             "url": url,
         });
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("setWebhook"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to set webhook: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("setWebhook", &body).await?;
         Ok(())
     }
 
@@ -157,20 +166,7 @@ impl TelegramClient {
     pub async fn delete_webhook(&self) -> Result<(), BotError> {
         let body = serde_json::json!({});
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("deleteWebhook"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to delete webhook: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("deleteWebhook", &body).await?;
         Ok(())
     }
 
@@ -189,35 +185,7 @@ impl TelegramClient {
             body["timeout"] = serde_json::json!(timeout);
         }
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("getUpdates"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to get updates: {}",
-                response.status()
-            )));
-        }
-
-        #[derive(serde::Deserialize)]
-        struct Response {
-            result: Vec<crate::types::Update>,
-        }
-
-        let body_str = response
-            .into_body()
-            .into_string()
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        let parsed: Response =
-            serde_json::from_str(&body_str).map_err(|e| BotError::Api(e.to_string()))?;
-
-        Ok(parsed.result)
+        self.post_json("getUpdates", &body).await
     }
 
     /// Send a chat action (typing, uploading, etc.)
@@ -227,20 +195,7 @@ impl TelegramClient {
             "action": action,
         });
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("sendChatAction"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send chat action: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("sendChatAction", &body).await?;
         Ok(())
     }
 
@@ -252,20 +207,7 @@ impl TelegramClient {
             "commands": commands,
         });
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("setMyCommands"))
-            .json_body(&body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to set commands: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self.post_json("setMyCommands", &body).await?;
         Ok(())
     }
 
@@ -279,7 +221,6 @@ impl TelegramClient {
     ) -> Result<(), BotError> {
         use zenwave::multipart::{Multipart, MultipartPart};
 
-        // Read file contents
         let mut contents = Vec::new();
         file.read_to_end(&mut contents)
             .await
@@ -287,18 +228,13 @@ impl TelegramClient {
 
         let filename = filename.unwrap_or("file");
 
-        // Build multipart form
         let mut multipart = Multipart::new();
-
-        // chat_id field
         multipart.push(MultipartPart::text("chat_id", chat_id.to_string()));
 
-        // caption field (if provided)
         if let Some(caption) = caption {
             multipart.push(MultipartPart::text("caption", caption));
         }
 
-        // document field (file)
         multipart.push(MultipartPart::binary(
             "document",
             filename.to_owned(),
@@ -309,21 +245,57 @@ impl TelegramClient {
         let (boundary, body) = multipart.encode();
         let content_type = format!("multipart/form-data; boundary={}", boundary);
 
-        let mut client = zenwave::client();
-        let response = client
-            .post(&self.api_url("sendDocument"))
-            .header("Content-Type", content_type)
-            .bytes_body(body)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send document: {}",
-                response.status()
-            )));
-        }
-
+        let _: serde_json::Value = self
+            .post_multipart("sendDocument", content_type, body)
+            .await?;
         Ok(())
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TelegramApiResponse<T> {
+    ok: bool,
+    result: Option<T>,
+    description: Option<String>,
+}
+
+fn parse_api_response<T>(method: &str, body: &str) -> Result<T, BotError>
+where
+    T: DeserializeOwned,
+{
+    let response: TelegramApiResponse<T> =
+        serde_json::from_str(body).map_err(|e| BotError::Api(e.to_string()))?;
+
+    if !response.ok {
+        let description = response
+            .description
+            .unwrap_or_else(|| format!("Telegram {method} failed without description"));
+        return Err(BotError::Api(description));
+    }
+
+    response
+        .result
+        .ok_or_else(|| BotError::Api(format!("Telegram {method} succeeded without result")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_api_response;
+
+    #[test]
+    fn parses_successful_api_response() {
+        let updates: Vec<serde_json::Value> =
+            parse_api_response("getUpdates", r#"{"ok":true,"result":[{"update_id":1}]}"#).unwrap();
+        assert_eq!(updates.len(), 1);
+    }
+
+    #[test]
+    fn rejects_api_error_response() {
+        let err = parse_api_response::<serde_json::Value>(
+            "sendMessage",
+            r#"{"ok":false,"description":"chat not found"}"#,
+        )
+        .unwrap_err();
+        assert_eq!(err.to_string(), "API request failed: chat not found");
     }
 }

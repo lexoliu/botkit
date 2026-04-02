@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use botkit_core::{Bot, BotBuilder, BotError, BotHandle, Context, IntoHandler, Response};
 use executor_core::spawn;
+use tracing::error;
 
 use crate::client::DiscordClient;
 use crate::event::DiscordContextData;
@@ -162,36 +163,32 @@ impl DiscordBot {
             return Ok(());
         }
 
-        // Handle file response - send to channel directly since interactions
-        // don't support file uploads in the initial response
-        if response.is_file() {
-            if let Some(file_response) = response.take_file() {
-                if let Some(channel_id) = &interaction.channel_id {
-                    // Show typing indicator
-                    let _ = client.trigger_typing(channel_id).await;
-
-                    // Acknowledge the interaction first
-                    client
-                        .respond_interaction(
-                            &interaction.id,
-                            &interaction.token,
-                            5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-                            serde_json::json!({}),
-                        )
-                        .await?;
-
-                    // Send file to channel
-                    let filename = file_response.filename.as_deref().unwrap_or("file");
-                    return client
-                        .send_file(
-                            channel_id,
-                            file_response.file,
-                            filename,
-                            file_response.caption.as_deref(),
-                        )
-                        .await;
-                }
+        // File responses need to go through the interaction webhook flow.
+        if response.is_file()
+            && let Some(file_response) = response.take_file()
+        {
+            if let Some(channel_id) = &interaction.channel_id {
+                let _ = client.trigger_typing(channel_id).await;
             }
+
+            client
+                .respond_interaction(
+                    &interaction.id,
+                    &interaction.token,
+                    5, // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+                    serde_json::json!({}),
+                )
+                .await?;
+
+            let filename = file_response.filename.as_deref().unwrap_or("file");
+            return client
+                .send_followup_file(
+                    &interaction.token,
+                    file_response.file,
+                    filename,
+                    file_response.caption.as_deref(),
+                )
+                .await;
         }
 
         // Build response data
@@ -201,12 +198,14 @@ impl DiscordBot {
 
         let embeds = response.embeds();
         if !embeds.is_empty() {
-            data["embeds"] = serde_json::to_value(embeds).unwrap_or_default();
+            data["embeds"] = serde_json::to_value(embeds)
+                .map_err(|e| BotError::Other(format!("failed to serialize embeds: {e}")))?;
         }
 
         let components = response.components();
         if !components.is_empty() {
-            data["components"] = serde_json::to_value(components).unwrap_or_default();
+            data["components"] = serde_json::to_value(components)
+                .map_err(|e| BotError::Other(format!("failed to serialize components: {e}")))?;
         }
 
         if response.is_ephemeral() {
@@ -252,7 +251,7 @@ impl Bot for DiscordBot {
                             // Spawn interaction handler as a separate task
                             spawn(async move {
                                 if let Err(e) = bot.handle_interaction(&client, interaction).await {
-                                    eprintln!("Interaction error: {}", e);
+                                    error!("Interaction error: {}", e);
                                 }
                             })
                             .detach();

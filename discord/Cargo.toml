@@ -3,6 +3,8 @@ name = "botkit-discord"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
+readme.workspace = true
+repository.workspace = true
 description = "Discord implementation for botkit"
 
 [dependencies]
@@ -14,5 +16,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
-async-channel = "2"
 async-fs = "2"
+async-io = "2"
+tracing = "0.1"

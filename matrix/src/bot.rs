@@ -198,12 +198,19 @@ impl MatrixBot {
 
     /// Build and connect the Matrix client
     async fn build_client(&self) -> Result<Client, BotError> {
-        let mut client_builder = Client::builder().homeserver_url(&self.config.homeserver_url);
+        #[cfg(not(target_arch = "wasm32"))]
+        let client_builder = {
+            let client_builder = Client::builder().homeserver_url(&self.config.homeserver_url);
 
-        // Configure state store if provided
-        if let Some(path) = &self.config.state_store_path {
-            client_builder = client_builder.sqlite_store(path, None);
-        }
+            if let Some(path) = &self.config.state_store_path {
+                client_builder.sqlite_store(path, None)
+            } else {
+                client_builder
+            }
+        };
+
+        #[cfg(target_arch = "wasm32")]
+        let client_builder = Client::builder().homeserver_url(&self.config.homeserver_url);
 
         let client = client_builder
             .build()
@@ -248,15 +255,15 @@ impl MatrixBot {
                 access_token,
                 device_id,
             } => {
-                use matrix_sdk::SessionMeta;
-                use matrix_sdk::matrix_auth::MatrixSession;
+                use matrix_sdk::authentication::matrix::MatrixSession;
+                use matrix_sdk::{SessionMeta, SessionTokens};
 
                 let session = MatrixSession {
                     meta: SessionMeta {
                         user_id: user_id.clone(),
                         device_id: device_id.clone(),
                     },
-                    tokens: matrix_sdk::matrix_auth::MatrixSessionTokens {
+                    tokens: SessionTokens {
                         access_token: access_token.clone(),
                         refresh_token: None,
                     },

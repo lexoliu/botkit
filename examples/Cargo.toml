@@ -33,15 +33,11 @@ path = "test_matrix.rs"
 async-executor = "1"
 async-fs = "2"
 async-io = "2"
-zenwave.workspace = true
 botkit-core.workspace = true
 botkit-discord = { path = "../discord" }
 botkit-telegram = { path = "../telegram" }
 botkit-matrix = { path = "../matrix" }
 tracing-subscriber = "0.3"
 skyzen.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
-http-kit.workspace = true

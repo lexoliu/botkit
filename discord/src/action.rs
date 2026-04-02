@@ -1,9 +1,6 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
-use botkit_core::BotError;
-use botkit_core::action::{ChatAction, ChatActionSender};
+use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
 
 use crate::client::DiscordClient;
 
@@ -24,10 +21,7 @@ impl DiscordActionSender {
 }
 
 impl ChatActionSender for DiscordActionSender {
-    fn send_action(
-        &self,
-        _action: ChatAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + '_>> {
+    fn send_action(&self, _action: ChatAction) -> ChatActionFuture<'_> {
         // Discord only supports typing, ignore the action type
         Box::pin(async move { self.client.trigger_typing(&self.channel_id).await })
     }

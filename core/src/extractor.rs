@@ -3,6 +3,26 @@ use std::future::Future;
 use crate::action::ChatActionGuard;
 use crate::context::Context;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub trait FromContextBounds: Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send> FromContextBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait FromContextBounds {}
+#[cfg(target_arch = "wasm32")]
+impl<T> FromContextBounds for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait ContextFutureBounds: Future + Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Future + Send + ?Sized> ContextFutureBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait ContextFutureBounds: Future {}
+#[cfg(target_arch = "wasm32")]
+impl<T: Future + ?Sized> ContextFutureBounds for T {}
+
 /// Trait for extracting typed data from bot context
 ///
 /// Similar to skyzen's `Extractor` trait, this allows handlers to
@@ -19,9 +39,9 @@ use crate::context::Context;
 ///     args.0
 /// }
 /// ```
-pub trait FromContext: Sized + Send {
+pub trait FromContext: Sized + FromContextBounds {
     /// Extract data from the context
-    fn from_context(ctx: &Context) -> impl Future<Output = Self> + Send;
+    fn from_context(ctx: &Context) -> impl ContextFutureBounds<Output = Self>;
 }
 
 /// Extract the full context (for advanced use cases)

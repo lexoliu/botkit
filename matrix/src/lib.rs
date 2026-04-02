@@ -24,6 +24,9 @@
 //!     .unwrap();
 //! ```
 
+#[cfg(target_arch = "wasm32")]
+use getrandom as _;
+
 pub mod action;
 mod bot;
 mod client;

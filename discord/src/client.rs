@@ -120,6 +120,67 @@ impl DiscordClient {
         Ok(())
     }
 
+    /// Send a follow-up message with a file attachment for an interaction
+    pub async fn send_followup_file(
+        &self,
+        interaction_token: &str,
+        mut file: async_fs::File,
+        filename: &str,
+        content: Option<&str>,
+    ) -> Result<(), BotError> {
+        use zenwave::multipart::{Multipart, MultipartPart};
+
+        let mut file_contents = Vec::new();
+        file.read_to_end(&mut file_contents)
+            .await
+            .map_err(|e| BotError::Other(e.to_string()))?;
+
+        let url = format!(
+            "{}/webhooks/{}/{}",
+            API_BASE, self.application_id, interaction_token
+        );
+
+        let mut payload = serde_json::json!({
+            "attachments": [{
+                "id": 0,
+                "filename": filename,
+            }]
+        });
+
+        if let Some(content) = content {
+            payload["content"] = serde_json::json!(content);
+        }
+
+        let mut multipart = Multipart::new();
+        multipart.push(MultipartPart::text("payload_json", payload.to_string()));
+        multipart.push(MultipartPart::binary(
+            "files[0]",
+            filename.to_owned(),
+            "application/octet-stream",
+            file_contents,
+        ));
+
+        let (boundary, body) = multipart.encode();
+        let content_type = format!("multipart/form-data; boundary={}", boundary);
+
+        let mut client = zenwave::client();
+        let response = client
+            .post(&url)
+            .header("Content-Type", content_type)
+            .bytes_body(body)
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(BotError::Api(format!(
+                "Failed to send follow-up file: {}",
+                response.status()
+            )));
+        }
+
+        Ok(())
+    }
+
     /// Trigger typing indicator in a channel
     pub async fn trigger_typing(&self, channel_id: &str) -> Result<(), BotError> {
         let url = format!("{}/channels/{}/typing", API_BASE, channel_id);

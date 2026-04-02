@@ -11,6 +11,7 @@ pub struct Update {
 /// The kind of update received
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[allow(clippy::large_enum_variant)]
 pub enum UpdateKind {
     Message(Message),
     EditedMessage(Message),

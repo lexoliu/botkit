@@ -1,9 +1,7 @@
-use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
 
 use botkit_core::BotError;
-use botkit_core::action::{ChatAction, ChatActionSender};
+use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
 use matrix_sdk::Room;
 
 /// Matrix chat action sender
@@ -22,10 +20,7 @@ impl MatrixActionSender {
 }
 
 impl ChatActionSender for MatrixActionSender {
-    fn send_action(
-        &self,
-        action: ChatAction,
-    ) -> Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + '_>> {
+    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_> {
         Box::pin(async move {
             // Matrix only supports typing indicators
             if action == ChatAction::Typing {
@@ -40,9 +35,9 @@ impl ChatActionSender for MatrixActionSender {
     }
 
     fn action_expiry(&self) -> Duration {
-        // Matrix typing notifications last about 30 seconds
-        // Renew more frequently for responsiveness
-        Duration::from_secs(20)
+        // matrix-sdk sends a 4 second typing timeout and internally coalesces
+        // refreshes, so the core 80% renewal logic re-sends before expiry.
+        Duration::from_secs(4)
     }
 
     fn clone_boxed(&self) -> Box<dyn ChatActionSender> {

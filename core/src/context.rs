@@ -3,6 +3,16 @@ use std::sync::Arc;
 
 use crate::action::{ChatAction, ChatActionGuard, ChatActionSender};
 
+#[cfg(not(target_arch = "wasm32"))]
+pub trait ContextDataBounds: Send + Sync {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Send + Sync + ?Sized> ContextDataBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait ContextDataBounds {}
+#[cfg(target_arch = "wasm32")]
+impl<T: ?Sized> ContextDataBounds for T {}
+
 /// Context for handling bot events
 ///
 /// Provides access to event data and platform client. Platform-specific
@@ -142,7 +152,7 @@ impl OptionValue {
 ///
 /// Platform implementations provide this to expose event data
 /// through the unified Context API.
-pub trait ContextData: Send + Sync + 'static {
+pub trait ContextData: ContextDataBounds + 'static {
     fn channel_id(&self) -> &str;
     fn user_id(&self) -> &str;
     fn user_name(&self) -> &str;
