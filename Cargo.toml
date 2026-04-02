@@ -10,10 +10,10 @@ repository = "https://github.com/lexoliu/botkit"
 
 [workspace.dependencies]
 # Internal crates
-botkit-core = { path = "core" }
-botkit-discord = { path = "discord" }
-botkit-telegram = { path = "telegram" }
-botkit-matrix = { path = "matrix" }
+botkit-core = { version = "0.1.0", path = "core" }
+botkit-discord = { version = "0.1.0", path = "discord" }
+botkit-telegram = { version = "0.1.0", path = "telegram" }
+botkit-matrix = { version = "0.1.0", path = "matrix" }
 
 # HTTP foundation
 http-kit = "0.4.2"
