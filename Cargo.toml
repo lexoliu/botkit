@@ -1,3 +1,15 @@
+[package]
+name = "botkit"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "Unified Rust bot framework with optional Discord, Telegram, and Matrix adapters"
+autoexamples = false
+keywords = ["bot", "discord", "telegram", "matrix"]
+categories = ["asynchronous", "api-bindings"]
+
 [workspace]
 resolver = "2"
 members = ["core", "discord", "telegram", "matrix", "examples"]
@@ -30,3 +42,16 @@ thiserror = "2.0.17"
 # Async runtime
 futures-lite = "2"
 executor-core = "0.7"
+
+[features]
+default = []
+discord = ["dep:botkit-discord"]
+telegram = ["dep:botkit-telegram"]
+matrix = ["dep:botkit-matrix"]
+full = ["discord", "telegram", "matrix"]
+
+[dependencies]
+botkit-core.workspace = true
+botkit-discord = { workspace = true, optional = true }
+botkit-telegram = { workspace = true, optional = true }
+botkit-matrix = { workspace = true, optional = true }
