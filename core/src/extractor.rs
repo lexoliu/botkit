@@ -121,45 +121,27 @@ impl FromContext for MessageContent {
     }
 }
 
-// Implement FromContext for tuples (for multiple extractors)
-impl FromContext for () {
-    async fn from_context(_ctx: &Context) -> Self {}
+// Tuples of extractors extract each element in declaration order.
+macro_rules! impl_from_context_tuple {
+    () => {
+        impl FromContext for () {
+            async fn from_context(_ctx: &Context) -> Self {}
+        }
+    };
+    ($($ty:ident),+) => {
+        impl<$($ty: FromContext,)+> FromContext for ($($ty,)+) {
+            async fn from_context(ctx: &Context) -> Self {
+                ($($ty::from_context(ctx).await,)+)
+            }
+        }
+    };
 }
 
-impl<T1: FromContext> FromContext for (T1,) {
-    async fn from_context(ctx: &Context) -> Self {
-        (T1::from_context(ctx).await,)
-    }
-}
-
-impl<T1: FromContext, T2: FromContext> FromContext for (T1, T2) {
-    async fn from_context(ctx: &Context) -> Self {
-        let t1 = T1::from_context(ctx).await;
-        let t2 = T2::from_context(ctx).await;
-        (t1, t2)
-    }
-}
-
-impl<T1: FromContext, T2: FromContext, T3: FromContext> FromContext for (T1, T2, T3) {
-    async fn from_context(ctx: &Context) -> Self {
-        let t1 = T1::from_context(ctx).await;
-        let t2 = T2::from_context(ctx).await;
-        let t3 = T3::from_context(ctx).await;
-        (t1, t2, t3)
-    }
-}
-
-impl<T1: FromContext, T2: FromContext, T3: FromContext, T4: FromContext> FromContext
-    for (T1, T2, T3, T4)
-{
-    async fn from_context(ctx: &Context) -> Self {
-        let t1 = T1::from_context(ctx).await;
-        let t2 = T2::from_context(ctx).await;
-        let t3 = T3::from_context(ctx).await;
-        let t4 = T4::from_context(ctx).await;
-        (t1, t2, t3, t4)
-    }
-}
+impl_from_context_tuple!();
+impl_from_context_tuple!(T1);
+impl_from_context_tuple!(T1, T2);
+impl_from_context_tuple!(T1, T2, T3);
+impl_from_context_tuple!(T1, T2, T3, T4);
 
 /// Typing indicator extractor
 ///
@@ -178,5 +160,69 @@ pub struct Typing(pub Option<ChatActionGuard>);
 impl FromContext for Typing {
     async fn from_context(ctx: &Context) -> Self {
         Self(ctx.typing())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::{EmptyData, StubData};
+    use futures_lite::future::block_on;
+
+    fn stub() -> Context {
+        Context::new(StubData)
+    }
+
+    fn empty() -> Context {
+        Context::new(EmptyData)
+    }
+
+    #[test]
+    fn extracts_user_and_channel() {
+        let user = block_on(User::from_context(&stub()));
+        assert_eq!(
+            (user.id.as_str(), user.name.as_str()),
+            ("stub-user", "stub-user")
+        );
+        assert_eq!(block_on(Channel::from_context(&stub())).id, "stub-channel");
+    }
+
+    #[test]
+    fn extracts_command_parts() {
+        assert_eq!(block_on(CommandName::from_context(&stub())).0, "cmd");
+        assert_eq!(block_on(CommandArgs::from_context(&stub())).0, "args");
+        assert_eq!(block_on(ButtonId::from_context(&stub())).0, "stub-button");
+        assert_eq!(
+            block_on(MessageContent::from_context(&stub())).0,
+            "stub message"
+        );
+    }
+
+    #[test]
+    fn absent_fields_extract_as_empty_strings() {
+        assert_eq!(block_on(CommandName::from_context(&empty())).0, "");
+        assert_eq!(block_on(CommandArgs::from_context(&empty())).0, "");
+        assert_eq!(block_on(ButtonId::from_context(&empty())).0, "");
+        assert_eq!(block_on(MessageContent::from_context(&empty())).0, "");
+    }
+
+    #[test]
+    fn tuples_extract_every_element() {
+        let (name, args, user) =
+            block_on(<(CommandName, CommandArgs, User)>::from_context(&stub()));
+        assert_eq!((name.0.as_str(), args.0.as_str()), ("cmd", "args"));
+        assert_eq!(user.id, "stub-user");
+    }
+
+    #[test]
+    fn context_extracts_itself() {
+        let ctx = block_on(Context::from_context(&stub()));
+        assert_eq!(ctx.user_id(), "stub-user");
+    }
+
+    #[test]
+    fn typing_is_absent_without_platform_support() {
+        // `StubData` does not override `action_sender`.
+        assert!(block_on(Typing::from_context(&stub())).0.is_none());
     }
 }

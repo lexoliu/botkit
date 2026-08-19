@@ -5,10 +5,10 @@
 //! MATRIX_HOMESERVER=https://matrix.org \
 //! MATRIX_USER=@bot:matrix.org \
 //! MATRIX_PASSWORD=yourpassword \
-//! cargo run -p botkit-examples --bin test_matrix
+//! cargo run -p botkit-examples --bin matrix
 //! ```
 
-use botkit_core::{CommandArgs, User};
+use botkit_core::{Bot, CommandArgs, User};
 use botkit_matrix::{MatrixBot, MatrixConfig};
 use futures_lite::future::block_on;
 

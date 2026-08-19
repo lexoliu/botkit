@@ -1,5 +1,5 @@
-#![allow(clippy::type_complexity)]
 use std::future::Future;
+use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -85,179 +85,103 @@ pub trait IntoHandler<Args> {
     fn into_handler(self) -> BoxedHandler;
 }
 
-// Zero args
-impl<F, Fut, R> IntoHandler<()> for F
-where
-    F: Fn() -> Fut + HandlerFnBounds + 'static,
-    Fut: HandlerFutureBounds<Output = R> + 'static,
-    R: IntoResponse + 'static,
-{
-    fn into_handler(self) -> BoxedHandler {
-        struct H<F>(F);
+/// Adapter that pairs a handler function with the extractors it asks for.
+///
+/// `PhantomData<fn() -> Args>` is covariant in `Args` and unconditionally
+/// `Send + Sync`, so the auto trait impls fall out of `F` alone — the extractor
+/// types never have to be thread-safe themselves.
+struct FnHandler<F, Args>(F, PhantomData<fn() -> Args>);
 
-        impl<F, Fut, R> Handler for H<F>
-        where
-            F: Fn() -> Fut + HandlerFnBounds + 'static,
-            Fut: HandlerFutureBounds<Output = R> + 'static,
-            R: IntoResponse + 'static,
-        {
-            fn call(&self, _ctx: Context) -> HandlerCallFuture<'_> {
-                let fut = (self.0)();
-                Box::pin(async move { fut.await.into_response() })
-            }
-        }
-
-        Arc::new(H(self))
+impl<F, Args> FnHandler<F, Args> {
+    fn new(f: F) -> Self {
+        Self(f, PhantomData)
     }
 }
 
-// One arg
-impl<F, Fut, T1, R> IntoHandler<(T1,)> for F
-where
-    F: Fn(T1) -> Fut + HandlerFnBounds + 'static,
-    Fut: HandlerFutureBounds<Output = R> + 'static,
-    T1: FromContext + 'static,
-    R: IntoResponse + 'static,
-{
-    fn into_handler(self) -> BoxedHandler {
-        struct H<F, T1>(F, std::marker::PhantomData<fn() -> T1>);
-
-        // Safety: PhantomData<fn() -> T1> is always Send+Sync
-        unsafe impl<F: Send, T1> Send for H<F, T1> {}
-        unsafe impl<F: Sync, T1> Sync for H<F, T1> {}
-
-        impl<F, Fut, T1, R> Handler for H<F, T1>
+/// Generate an `IntoHandler` impl for a handler function of the given arity.
+macro_rules! impl_into_handler {
+    ($($ty:ident $arg:ident),*) => {
+        impl<F, Fut, R, $($ty,)*> IntoHandler<($($ty,)*)> for F
         where
-            F: Fn(T1) -> Fut + HandlerFnBounds + 'static,
+            F: Fn($($ty,)*) -> Fut + HandlerFnBounds + 'static,
             Fut: HandlerFutureBounds<Output = R> + 'static,
-            T1: FromContext + 'static,
             R: IntoResponse + 'static,
+            $($ty: FromContext + 'static,)*
         {
-            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
-                Box::pin(async move {
-                    let t1 = T1::from_context(&ctx).await;
-                    (self.0)(t1).await.into_response()
-                })
+            fn into_handler(self) -> BoxedHandler {
+                Arc::new(FnHandler::new(self))
             }
         }
 
-        Arc::new(H(self, std::marker::PhantomData))
-    }
+        impl<F, Fut, R, $($ty,)*> Handler for FnHandler<F, ($($ty,)*)>
+        where
+            F: Fn($($ty,)*) -> Fut + HandlerFnBounds + 'static,
+            Fut: HandlerFutureBounds<Output = R> + 'static,
+            R: IntoResponse + 'static,
+            $($ty: FromContext + 'static,)*
+        {
+            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
+                Box::pin(async move {
+                    // `ctx` is unused at arity zero.
+                    let _ = &ctx;
+                    $(let $arg = $ty::from_context(&ctx).await;)*
+                    (self.0)($($arg,)*).await.into_response()
+                })
+            }
+        }
+    };
 }
 
-// Two args
-impl<F, Fut, T1, T2, R> IntoHandler<(T1, T2)> for F
-where
-    F: Fn(T1, T2) -> Fut + HandlerFnBounds + 'static,
-    Fut: HandlerFutureBounds<Output = R> + 'static,
-    T1: FromContext + 'static,
-    T2: FromContext + 'static,
-    R: IntoResponse + 'static,
-{
-    fn into_handler(self) -> BoxedHandler {
-        struct H<F, T1, T2>(F, std::marker::PhantomData<fn() -> (T1, T2)>);
+impl_into_handler!();
+impl_into_handler!(T1 t1);
+impl_into_handler!(T1 t1, T2 t2);
+impl_into_handler!(T1 t1, T2 t2, T3 t3);
+impl_into_handler!(T1 t1, T2 t2, T3 t3, T4 t4);
 
-        unsafe impl<F: Send, T1, T2> Send for H<F, T1, T2> {}
-        unsafe impl<F: Sync, T1, T2> Sync for H<F, T1, T2> {}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::extractor::{Channel, CommandArgs, CommandName, User};
+    use crate::test_util::StubData;
+    use futures_lite::future::block_on;
 
-        impl<F, Fut, T1, T2, R> Handler for H<F, T1, T2>
-        where
-            F: Fn(T1, T2) -> Fut + HandlerFnBounds + 'static,
-            Fut: HandlerFutureBounds<Output = R> + 'static,
-            T1: FromContext + 'static,
-            T2: FromContext + 'static,
-            R: IntoResponse + 'static,
-        {
-            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
-                Box::pin(async move {
-                    let t1 = T1::from_context(&ctx).await;
-                    let t2 = T2::from_context(&ctx).await;
-                    (self.0)(t1, t2).await.into_response()
-                })
-            }
-        }
-
-        Arc::new(H(self, std::marker::PhantomData))
+    fn call<H: IntoHandler<Args>, Args>(handler: H) -> Response {
+        let handler = handler.into_handler();
+        block_on(handler.call(Context::new(StubData)))
     }
-}
 
-// Three args
-impl<F, Fut, T1, T2, T3, R> IntoHandler<(T1, T2, T3)> for F
-where
-    F: Fn(T1, T2, T3) -> Fut + HandlerFnBounds + 'static,
-    Fut: HandlerFutureBounds<Output = R> + 'static,
-    T1: FromContext + 'static,
-    T2: FromContext + 'static,
-    T3: FromContext + 'static,
-    R: IntoResponse + 'static,
-{
-    fn into_handler(self) -> BoxedHandler {
-        struct H<F, T1, T2, T3>(F, std::marker::PhantomData<fn() -> (T1, T2, T3)>);
-
-        unsafe impl<F: Send, T1, T2, T3> Send for H<F, T1, T2, T3> {}
-        unsafe impl<F: Sync, T1, T2, T3> Sync for H<F, T1, T2, T3> {}
-
-        impl<F, Fut, T1, T2, T3, R> Handler for H<F, T1, T2, T3>
-        where
-            F: Fn(T1, T2, T3) -> Fut + HandlerFnBounds + 'static,
-            Fut: HandlerFutureBounds<Output = R> + 'static,
-            T1: FromContext + 'static,
-            T2: FromContext + 'static,
-            T3: FromContext + 'static,
-            R: IntoResponse + 'static,
-        {
-            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
-                Box::pin(async move {
-                    let t1 = T1::from_context(&ctx).await;
-                    let t2 = T2::from_context(&ctx).await;
-                    let t3 = T3::from_context(&ctx).await;
-                    (self.0)(t1, t2, t3).await.into_response()
-                })
-            }
+    #[test]
+    fn zero_arg_handler() {
+        async fn ping() -> &'static str {
+            "Pong!"
         }
-
-        Arc::new(H(self, std::marker::PhantomData))
+        assert_eq!(call(ping).content(), Some("Pong!"));
     }
-}
 
-// Four args
-impl<F, Fut, T1, T2, T3, T4, R> IntoHandler<(T1, T2, T3, T4)> for F
-where
-    F: Fn(T1, T2, T3, T4) -> Fut + HandlerFnBounds + 'static,
-    Fut: HandlerFutureBounds<Output = R> + 'static,
-    T1: FromContext + 'static,
-    T2: FromContext + 'static,
-    T3: FromContext + 'static,
-    T4: FromContext + 'static,
-    R: IntoResponse + 'static,
-{
-    fn into_handler(self) -> BoxedHandler {
-        struct H<F, T1, T2, T3, T4>(F, std::marker::PhantomData<fn() -> (T1, T2, T3, T4)>);
-
-        unsafe impl<F: Send, T1, T2, T3, T4> Send for H<F, T1, T2, T3, T4> {}
-        unsafe impl<F: Sync, T1, T2, T3, T4> Sync for H<F, T1, T2, T3, T4> {}
-
-        impl<F, Fut, T1, T2, T3, T4, R> Handler for H<F, T1, T2, T3, T4>
-        where
-            F: Fn(T1, T2, T3, T4) -> Fut + HandlerFnBounds + 'static,
-            Fut: HandlerFutureBounds<Output = R> + 'static,
-            T1: FromContext + 'static,
-            T2: FromContext + 'static,
-            T3: FromContext + 'static,
-            T4: FromContext + 'static,
-            R: IntoResponse + 'static,
-        {
-            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
-                Box::pin(async move {
-                    let t1 = T1::from_context(&ctx).await;
-                    let t2 = T2::from_context(&ctx).await;
-                    let t3 = T3::from_context(&ctx).await;
-                    let t4 = T4::from_context(&ctx).await;
-                    (self.0)(t1, t2, t3, t4).await.into_response()
-                })
-            }
+    #[test]
+    fn extractors_are_applied_in_order() {
+        async fn four(a: CommandName, b: CommandArgs, c: User, d: Channel) -> String {
+            format!("{} {} {} {}", a.0, b.0, c.name, d.id)
         }
+        assert_eq!(
+            call(four).content(),
+            Some("cmd args stub-user stub-channel")
+        );
+    }
 
-        Arc::new(H(self, std::marker::PhantomData))
+    #[test]
+    fn closures_are_handlers_too() {
+        let handler = || async { String::from("closure") };
+        assert_eq!(call(handler).content(), Some("closure"));
+    }
+
+    #[test]
+    fn handlers_may_capture_non_thread_safe_extractors() {
+        // `Context` is not `Sync`-bound by the extractor itself; this compiles
+        // only because `FnHandler`'s auto traits depend on `F` alone.
+        async fn with_ctx(ctx: Context) -> String {
+            ctx.user_id().to_string()
+        }
+        assert_eq!(call(with_ctx).content(), Some("stub-user"));
     }
 }

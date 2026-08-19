@@ -55,6 +55,28 @@ impl MatrixClient {
         Ok(())
     }
 
+    /// Upload a file and send it to a room
+    ///
+    /// The MIME type is guessed from the filename; Matrix requires one, and
+    /// `application/octet-stream` is the safe fallback.
+    pub async fn send_file(
+        &self,
+        room: &Room,
+        filename: &str,
+        bytes: Vec<u8>,
+    ) -> Result<OwnedEventId, BotError> {
+        use matrix_sdk::attachment::AttachmentConfig;
+
+        let content_type = mime_guess::from_path(filename).first_or_octet_stream();
+
+        let response = room
+            .send_attachment(filename, &content_type, bytes, AttachmentConfig::new())
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        Ok(response.event_id)
+    }
+
     /// React to a message with an emoji
     pub async fn react(
         &self,

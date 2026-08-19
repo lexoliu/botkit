@@ -30,8 +30,4 @@ impl ChatActionSender for DiscordActionSender {
         // Discord typing expires after ~10 seconds
         Duration::from_secs(10)
     }
-
-    fn clone_boxed(&self) -> Box<dyn ChatActionSender> {
-        Box::new(self.clone())
-    }
 }

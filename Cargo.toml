@@ -29,8 +29,16 @@ botkit-matrix = { version = "0.1.0", path = "matrix" }
 
 # HTTP foundation
 http-kit = "0.4.2"
-skyzen = "0.1.0"
 zenwave = "0.3.0"
+# Pinned: skyzen 0.1.1 pulls in skyzen-services -> sqlx -> libsqlite3-sys 0.28,
+# which cannot coexist with matrix-sdk's rusqlite (libsqlite3-sys 0.35) in one
+# dependency graph. skyzen-core is pinned alongside it because 0.1.1 added a
+# field to `ExtractorSchema` that skyzen 0.1.0 does not set, and skyzen-macros
+# 0.1.1 expects a `skyzen::import_config` that 0.1.0 does not export, so all
+# three only compile as a matched set.
+skyzen = "=0.1.0"
+skyzen-core = "=0.1.0"
+skyzen-macros = "=0.1.0"
 
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
