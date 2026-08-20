@@ -1,0 +1,32 @@
+# Deliberately its own workspace, not a member of the root one.
+#
+# skyzen depends (non-optionally) on skyzen-services -> sqlx -> libsqlite3-sys,
+# while matrix-sdk's state store pulls rusqlite -> a different libsqlite3-sys.
+# Two packages that both `links = "sqlite3"` cannot appear in one resolve graph,
+# and cargo checks that across the whole workspace rather than per crate. Giving
+# the skyzen examples their own workspace lets the library crates keep both
+# up-to-date skyzen here and matrix-sdk's SQLite store there.
+[workspace]
+
+[package]
+name = "botkit-examples-webhook"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[[bin]]
+name = "telegram_webhook"
+path = "telegram_webhook.rs"
+
+[[bin]]
+name = "unified"
+path = "unified.rs"
+
+[dependencies]
+botkit-core = { path = "../../core" }
+botkit-discord = { path = "../../discord" }
+botkit-telegram = { path = "../../telegram" }
+skyzen = "0.1.2"
+executor-core = "0.7.1"
+futures-lite = "2.6"

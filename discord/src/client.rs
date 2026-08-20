@@ -10,6 +10,8 @@ pub(crate) const INTERACTION_PONG: u8 = 1;
 pub(crate) const CHANNEL_MESSAGE_WITH_SOURCE: u8 = 4;
 /// Acknowledge now, send the real message as a follow-up.
 pub(crate) const DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: u8 = 5;
+/// Acknowledge a component interaction without changing anything.
+pub(crate) const DEFERRED_UPDATE_MESSAGE: u8 = 6;
 /// Message flag marking a response as visible only to the invoking user.
 pub(crate) const EPHEMERAL_FLAG: u32 = 1 << 6;
 
@@ -25,6 +27,8 @@ pub struct DiscordClient {
 impl DiscordClient {
     /// Create a new Discord client
     pub fn new(token: impl Into<String>, application_id: impl Into<String>) -> Self {
+        install_crypto_provider();
+
         let token = token.into();
         Self {
             // Bot tokens use Discord's own `Bot` scheme, not `Bearer`.
@@ -60,10 +64,13 @@ impl DiscordClient {
 
         let response = zenwave::client()
             .post(&url)
+            .map_err(api_error)?
             .header("Authorization", self.auth_header.as_str())
+            .map_err(api_error)?
             .json_body(payload)
+            .map_err(api_error)?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("send message", response)
     }
@@ -84,9 +91,11 @@ impl DiscordClient {
 
         let response = zenwave::client()
             .post(&url)
+            .map_err(api_error)?
             .json_body(&body)
+            .map_err(api_error)?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("respond to interaction", response)
     }
@@ -104,10 +113,13 @@ impl DiscordClient {
 
         let response = zenwave::client()
             .method(http_kit::Method::PATCH, &url)
+            .map_err(api_error)?
             .header("Authorization", self.auth_header.as_str())
+            .map_err(api_error)?
             .json_body(data)
+            .map_err(api_error)?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("edit response", response)
     }
@@ -129,10 +141,12 @@ impl DiscordClient {
         let (content_type, body) = attachment_form(filename, content, file).await?;
         let response = zenwave::client()
             .post(&url)
+            .map_err(api_error)?
             .header("Content-Type", content_type)
+            .map_err(api_error)?
             .bytes_body(body)
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("send follow-up file", response)
     }
@@ -150,11 +164,14 @@ impl DiscordClient {
         let (content_type, body) = attachment_form(filename, content, file).await?;
         let response = zenwave::client()
             .post(&url)
+            .map_err(api_error)?
             .header("Authorization", self.auth_header.as_str())
+            .map_err(api_error)?
             .header("Content-Type", content_type)
+            .map_err(api_error)?
             .bytes_body(body)
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("send file", response)
     }
@@ -165,9 +182,11 @@ impl DiscordClient {
 
         let response = zenwave::client()
             .post(&url)
+            .map_err(api_error)?
             .header("Authorization", self.auth_header.as_str())
+            .map_err(api_error)?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("trigger typing", response)
     }
@@ -184,10 +203,13 @@ impl DiscordClient {
 
         let response = zenwave::client()
             .method(http_kit::Method::PUT, &url)
+            .map_err(api_error)?
             .header("Authorization", self.auth_header.as_str())
+            .map_err(api_error)?
             .json_body(&serde_json::Value::Array(commands.to_vec()))
+            .map_err(api_error)?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(api_error)?;
 
         check_status("register commands", response)
     }
@@ -224,6 +246,24 @@ async fn attachment_form(
     Ok((format!("multipart/form-data; boundary={boundary}"), body))
 }
 
+/// Make sure rustls has a process-wide crypto provider before any TLS happens.
+///
+/// rustls only auto-detects a provider when exactly one is compiled in. A bot
+/// that talks to Matrix *and* Discord or Telegram pulls both `ring` and
+/// `aws-lc-rs` into the build, and rustls then refuses to guess — it panics on
+/// the first handshake. Installing one explicitly is what keeps a unified bot
+/// working; whichever adapter gets there first wins, and the rest are no-ops.
+fn install_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        // Fails only if another thread won the race, which is just as good.
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+}
+
+fn api_error(error: zenwave::Error) -> BotError {
+    BotError::Api(error.to_string())
+}
+
 fn check_status(what: &str, response: http_kit::Response) -> Result<(), BotError> {
     if response.status().is_success() {
         return Ok(());
@@ -232,4 +272,25 @@ fn check_status(what: &str, response: http_kit::Response) -> Result<(), BotError
         "Discord: failed to {what} (HTTP {})",
         response.status()
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiscordClient;
+
+    #[test]
+    fn bot_tokens_use_discords_own_auth_scheme() {
+        // Discord rejects `Bearer` for bot tokens; every REST call would 401.
+        let client = DiscordClient::new("abc123", "app");
+        assert_eq!(client.auth_header, "Bot abc123");
+    }
+
+    #[test]
+    fn building_a_client_installs_a_crypto_provider() {
+        // Without this, a bot that also talks to Matrix panics on its first TLS
+        // handshake: both `ring` and `aws-lc-rs` end up compiled in and rustls
+        // refuses to pick one for you.
+        let _client = DiscordClient::new("token", "app");
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
 }

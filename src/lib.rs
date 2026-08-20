@@ -27,8 +27,8 @@ pub mod prelude {
     pub use botkit_core::{
         Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction, ChatActionGuard,
         ChatActionSender, CommandArgs, CommandInfo, CommandName, Context, ContextData, Event,
-        FileResponse, FileSource, FromContext, Handler, HandlerPattern, IntoHandler, IntoResponse,
-        MessageContent, OptionValue, Response, Shutdown, ShutdownSignal, Typing, User,
+        FileResponse, FileSource, FromContext, Handler, IntoHandler, IntoResponse, MessageContent,
+        OptionValue, Response, Shutdown, ShutdownSignal, Typing, User,
     };
 
     #[cfg(feature = "discord")]

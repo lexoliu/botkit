@@ -73,35 +73,6 @@ pub enum Event<'a> {
     Message,
 }
 
-/// How a handler was registered
-///
-/// Mostly useful for introspection; routing itself goes through
-/// [`BotBuilder::route`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum HandlerPattern {
-    /// Matches a command by exact name
-    Command(String),
-    /// Matches a button id exactly, or by prefix when it ends with `*`
-    Button(String),
-    /// Matches any non-command message
-    Message,
-}
-
-impl HandlerPattern {
-    /// Check whether this pattern matches an event
-    pub fn matches(&self, event: Event<'_>) -> bool {
-        match (self, event) {
-            (Self::Command(name), Event::Command(value)) => name == value,
-            (Self::Button(pattern), Event::Button(value)) => match pattern.strip_suffix('*') {
-                Some(prefix) => value.starts_with(prefix),
-                None => pattern == value,
-            },
-            (Self::Message, Event::Message) => true,
-            _ => false,
-        }
-    }
-}
-
 /// A registered command and the description shown in platform command menus
 #[derive(Debug, Clone, Copy)]
 pub struct CommandInfo<'a> {
@@ -342,14 +313,5 @@ mod tests {
                 ("help".to_string(), "Show help".to_string()),
             ]
         );
-    }
-
-    #[test]
-    fn pattern_matching_mirrors_routing() {
-        assert!(HandlerPattern::Command("ping".into()).matches(Event::Command("ping")));
-        assert!(!HandlerPattern::Command("ping".into()).matches(Event::Button("ping")));
-        assert!(HandlerPattern::Button("confirm_*".into()).matches(Event::Button("confirm_yes")));
-        assert!(!HandlerPattern::Button("confirm_*".into()).matches(Event::Button("deny")));
-        assert!(HandlerPattern::Message.matches(Event::Message));
     }
 }

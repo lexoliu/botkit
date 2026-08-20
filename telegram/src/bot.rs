@@ -293,11 +293,15 @@ impl Dispatcher {
         update: Update,
     ) -> Result<Option<(TelegramContextData, botkit_core::BoxedHandler)>, BotError> {
         // Telegram spins the button until the query is answered, so do it
-        // before the handler runs rather than after.
-        if let UpdateKind::CallbackQuery(callback_query) = &update.kind {
-            self.client
+        // before the handler runs rather than after. A failure here is cosmetic
+        // - it must not cost the user their button press.
+        if let UpdateKind::CallbackQuery(callback_query) = &update.kind
+            && let Err(e) = self
+                .client
                 .answer_callback_query(&callback_query.id, None, false)
-                .await?;
+                .await
+        {
+            warn!("Failed to answer callback query: {e}");
         }
 
         // Edits are deliberately not re-dispatched: a handler that already ran
@@ -459,7 +463,6 @@ async fn race_shutdown<F: Future>(future: F, shutdown: &Shutdown) -> Option<F::O
     .await
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 async fn sleep(duration: Duration) {
     async_io::Timer::after(duration).await;
 }

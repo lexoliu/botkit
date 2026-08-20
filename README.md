@@ -125,6 +125,24 @@ Reactions route through the same handler table as buttons.
 | Ephemeral replies | yes | ignored | ignored |
 | Typing indicator | yes | yes | yes |
 
+## Examples
+
+```sh
+cargo run -p botkit-examples --bin discord
+cargo run -p botkit-examples --bin matrix
+cargo run -p botkit-examples --bin telegram_polling
+cargo run -p botkit-examples --bin telegram_typing_and_files
+```
+
+The HTTP webhook examples live in their own workspace, because skyzen and
+matrix-sdk each pull a package that links the system `sqlite3` library and only
+one may exist per build:
+
+```sh
+cargo run --manifest-path examples/webhook/Cargo.toml --bin telegram_webhook
+cargo run --manifest-path examples/webhook/Cargo.toml --bin unified
+```
+
 ## Status
 
 This project is a library workspace under active development. The API surface is still evolving.
