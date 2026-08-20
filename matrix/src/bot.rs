@@ -104,6 +104,9 @@ impl MatrixBot {
     /// Build and connect the Matrix client
     async fn build_client(&self) -> Result<Client, BotError> {
         #[cfg(not(target_arch = "wasm32"))]
+        install_crypto_provider();
+
+        #[cfg(not(target_arch = "wasm32"))]
         let client_builder = {
             let client_builder = Client::builder().homeserver_url(&self.config.homeserver_url);
 
@@ -277,6 +280,21 @@ fn register_handlers(client: &Client, bot: &Arc<BotState>, auto_join_rooms: bool
 /// Events from rooms we haven't joined, or from the bot itself, are noise.
 fn is_actionable(room: &Room, sender: &matrix_sdk::ruma::UserId) -> bool {
     room.state() == RoomState::Joined && room.client().user_id() != Some(sender)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+/// Make sure rustls has a process-wide crypto provider before any TLS happens.
+///
+/// rustls only auto-detects a provider when exactly one is compiled in. A bot
+/// that talks to Matrix *and* Discord or Telegram pulls both `ring` and
+/// `aws-lc-rs` into the build, and rustls then refuses to guess — it panics on
+/// the first handshake. Installing one explicitly is what keeps a unified bot
+/// working; whichever adapter gets there first wins, and the rest are no-ops.
+fn install_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        // Fails only if another thread won the race, which is just as good.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
 }
 
 /// Shared, immutable state each dispatched event needs.

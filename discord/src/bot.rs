@@ -9,8 +9,8 @@ use executor_core::spawn;
 use tracing::{debug, error, info, warn};
 
 use crate::client::{
-    CHANNEL_MESSAGE_WITH_SOURCE, DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, DiscordClient,
-    EPHEMERAL_FLAG, INTERACTION_PONG,
+    CHANNEL_MESSAGE_WITH_SOURCE, DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, DEFERRED_UPDATE_MESSAGE,
+    DiscordClient, EPHEMERAL_FLAG, INTERACTION_PONG,
 };
 use crate::event::{DiscordContextData, MessageContextData};
 use crate::gateway::{Gateway, GatewayConnection, GatewayEvent, GatewayIntents, Session};
@@ -333,6 +333,7 @@ async fn handle_interaction(bot: &BotState, interaction: Interaction) -> Result<
         return Ok(());
     };
 
+    let is_component = interaction.interaction_type == InteractionType::MessageComponent;
     let data = DiscordContextData::new(interaction, bot.client.clone());
     // The interaction has to outlive the handler to answer it.
     let interaction_id = data.interaction().id.clone();
@@ -346,6 +347,7 @@ async fn handle_interaction(bot: &BotState, interaction: Interaction) -> Result<
         &interaction_id,
         &interaction_token,
         channel_id.as_deref(),
+        is_component,
         response,
     )
     .await
@@ -368,10 +370,39 @@ async fn send_interaction_response(
     interaction_id: &str,
     interaction_token: &str,
     channel_id: Option<&str>,
+    is_component: bool,
     mut response: Response,
 ) -> Result<(), BotError> {
+    // Discord shows the user "This interaction failed" unless it hears back
+    // within three seconds, so even "no reply" has to be acknowledged.
     if response.is_empty() {
-        return Ok(());
+        if is_component {
+            // Silently acknowledges without touching the message.
+            return client
+                .respond_interaction(
+                    interaction_id,
+                    interaction_token,
+                    DEFERRED_UPDATE_MESSAGE,
+                    serde_json::json!({}),
+                )
+                .await;
+        }
+
+        // Application commands have no silent acknowledgement: Discord requires
+        // a visible reply. Defer so the user sees a pending state rather than a
+        // failure, and tell the developer their handler needs to return one.
+        warn!(
+            "command handler returned an empty response; Discord requires a reply, \
+             so the interaction was deferred instead"
+        );
+        return client
+            .respond_interaction(
+                interaction_id,
+                interaction_token,
+                DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+                serde_json::json!({}),
+            )
+            .await;
     }
 
     if response.is_acknowledge() {
@@ -528,6 +559,16 @@ mod tests {
         let payload = message_payload(&Response::text("hi")).unwrap();
         assert!(payload.get("embeds").is_none());
         assert!(payload.get("components").is_none());
+    }
+
+    #[test]
+    fn interaction_response_codes_match_discords_wire_values() {
+        // An empty response still has to be acknowledged, and which code does
+        // that silently depends on the interaction kind.
+        assert_eq!(INTERACTION_PONG, 1);
+        assert_eq!(CHANNEL_MESSAGE_WITH_SOURCE, 4);
+        assert_eq!(DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, 5);
+        assert_eq!(DEFERRED_UPDATE_MESSAGE, 6);
     }
 
     #[test]

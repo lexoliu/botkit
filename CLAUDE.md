@@ -15,11 +15,14 @@ cargo build -p botkit-telegram
 cargo build -p botkit-matrix
 
 # Run examples
-cargo run -p botkit-examples --bin unified
-cargo run -p botkit-examples --bin telegram_webhook
+cargo run -p botkit-examples --bin discord
+cargo run -p botkit-examples --bin matrix
 cargo run -p botkit-examples --bin telegram_polling
 cargo run -p botkit-examples --bin telegram_typing_and_files
-cargo run -p botkit-examples --bin matrix
+
+# The skyzen (HTTP webhook) examples are their own workspace
+cargo run --manifest-path examples/webhook/Cargo.toml --bin telegram_webhook
+cargo run --manifest-path examples/webhook/Cargo.toml --bin unified
 
 # Check without building
 cargo check
@@ -47,7 +50,8 @@ This is a unified bot framework supporting Discord, Telegram, and Matrix platfor
 - **discord/** (`botkit-discord`): Discord implementation using WebSocket Gateway
 - **telegram/** (`botkit-telegram`): Telegram implementation supporting both webhooks (via skyzen HTTP) and long polling
 - **matrix/** (`botkit-matrix`): Matrix implementation using matrix-sdk with E2EE support
-- **examples/**: Runnable examples demonstrating unified and platform-specific usage
+- **examples/**: Runnable examples per platform
+- **examples/webhook/**: skyzen-based HTTP webhook examples. A **separate workspace**, excluded from the root one — see "Dependency constraints" below
 
 ### Key Abstractions (in `botkit-core`)
 
@@ -160,10 +164,32 @@ Uses custom HTTP crates (not tokio ecosystem):
 - CI gates on `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and the WASM build; run all three before pushing
 - Platform wire formats live in the platform crate, never in `botkit-core`
 
-## Dependency pins
+## Dependency constraints
 
-`skyzen`, `skyzen-core`, and `skyzen-macros` are pinned to exactly `0.1.0` in
-the workspace manifest. They only compile as a matched set, and `skyzen 0.1.1`
-pulls in `sqlx` -> `libsqlite3-sys 0.28`, which cannot coexist with
-`matrix-sdk`'s `rusqlite`. `Cargo.lock` is gitignored, so unpinning these
-breaks a fresh resolve (including in CI).
+**skyzen and matrix-sdk cannot share a workspace.** skyzen depends
+(non-optionally) on `skyzen-services` -> `sqlx` -> `libsqlite3-sys`, while
+matrix-sdk's state store pulls `rusqlite` -> a *different* `libsqlite3-sys`.
+Two packages declaring `links = "sqlite3"` cannot appear in one resolve graph,
+and cargo enforces that across an entire workspace rather than per crate.
+
+That is why `examples/webhook/` carries its own `[workspace]` table and is listed
+under `exclude` in the root manifest. Do not add `botkit-telegram`'s webhook
+examples back into the root workspace, and do not add a skyzen dependency to any
+root workspace member. The library crates are unaffected: `botkit-telegram`
+integrates over `http-kit`'s `Endpoint`, not skyzen.
+
+**rustls needs an explicitly installed crypto provider.** Discord and Telegram
+reach TLS through zenwave (`ring`); Matrix reaches it through reqwest
+(`aws-lc-rs`). A bot using Matrix *and* one of the others compiles both into
+`rustls`, which then refuses to auto-detect and panics on the first handshake.
+Each adapter therefore calls `install_crypto_provider()` when its client is
+built — whichever runs first wins and the rest are no-ops. Any new networking
+entry point must do the same.
+
+**getrandom on wasm32** needs both the `wasm_js` feature and
+`--cfg getrandom_backend="wasm_js"`. The cfg lives in `.cargo/config.toml`, and
+the `getrandom` version in `matrix/Cargo.toml` must track whatever matrix-sdk
+pulls, or the feature lands on the wrong copy of the crate.
+
+`Cargo.lock` is gitignored, so every CI run resolves fresh — a version
+combination that only works locally will fail there.

@@ -19,7 +19,7 @@ mod test_util;
 pub mod types;
 
 pub use action::{ChatAction, ChatActionGuard, ChatActionSender};
-pub use bot::{Bot, BotBuilder, CommandInfo, Event, HandlerPattern};
+pub use bot::{Bot, BotBuilder, CommandInfo, Event};
 pub use context::{Context, ContextData, OptionValue};
 pub use error::BotError;
 pub use extractor::{

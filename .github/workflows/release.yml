@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     env:
-      RUST_TOOLCHAIN: 1.91.1
+      RUST_TOOLCHAIN: 1.97.1
     steps:
       - uses: actions/checkout@v4
         with:

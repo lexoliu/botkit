@@ -29,7 +29,7 @@ impl MatrixClient {
             .send(msg)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
-        Ok(response.event_id)
+        Ok(response.response.event_id)
     }
 
     /// Send a formatted (HTML) message to a room
@@ -44,7 +44,7 @@ impl MatrixClient {
             .send(msg)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
-        Ok(response.event_id)
+        Ok(response.response.event_id)
     }
 
     /// Send a typing notification
@@ -94,6 +94,6 @@ impl MatrixClient {
             .send(reaction)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
-        Ok(response.event_id)
+        Ok(response.response.event_id)
     }
 }
