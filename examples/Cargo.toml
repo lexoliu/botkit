@@ -10,27 +10,24 @@ name = "unified"
 path = "unified.rs"
 
 [[bin]]
-name = "test_telegram"
-path = "test_telegram.rs"
+name = "telegram_webhook"
+path = "telegram_webhook.rs"
 
 [[bin]]
-name = "test_polling"
-path = "test_polling.rs"
+name = "telegram_polling"
+path = "telegram_polling.rs"
 
 [[bin]]
-name = "typing_and_files"
-path = "typing_and_files.rs"
+name = "telegram_typing_and_files"
+path = "telegram_typing_and_files.rs"
 
 [[bin]]
-name = "debug_polling"
-path = "debug_polling.rs"
-
-[[bin]]
-name = "test_matrix"
-path = "test_matrix.rs"
+name = "matrix"
+path = "matrix.rs"
 
 [dependencies]
 async-executor = "1"
+ctrlc = "3"
 async-fs = "2"
 async-io = "2"
 botkit-core.workspace = true
@@ -39,5 +36,8 @@ botkit-telegram = { path = "../telegram" }
 botkit-matrix = { path = "../matrix" }
 tracing-subscriber = "0.3"
 skyzen.workspace = true
+# Pinned transitively; see the workspace manifest.
+skyzen-core.workspace = true
+skyzen-macros.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true

@@ -6,7 +6,9 @@ pub use botkit_core::*;
 #[cfg(feature = "discord")]
 pub use botkit_discord as discord;
 #[cfg(feature = "discord")]
-pub use botkit_discord::{DiscordBot, DiscordClient, DiscordContextData, Gateway, GatewayIntents};
+pub use botkit_discord::{
+    DiscordBot, DiscordClient, DiscordContextData, Gateway, GatewayIntents, MessageContextData,
+};
 
 #[cfg(feature = "telegram")]
 pub use botkit_telegram as telegram;
@@ -19,11 +21,14 @@ pub use botkit_matrix as matrix;
 pub use botkit_matrix::{MatrixAuth, MatrixBot, MatrixClient, MatrixConfig, MatrixContextData};
 
 pub mod prelude {
+    pub use botkit_core::types::{
+        ActionRow, Button, ButtonStyle, Component, Embed, SelectMenu, SelectOption,
+    };
     pub use botkit_core::{
         Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction, ChatActionGuard,
-        ChatActionSender, CommandArgs, CommandName, Context, ContextData, FileResponse,
-        FromContext, Handler, HandlerPattern, IntoHandler, IntoResponse, MessageContent,
-        OptionValue, Response, Typing, User,
+        ChatActionSender, CommandArgs, CommandInfo, CommandName, Context, ContextData, Event,
+        FileResponse, FileSource, FromContext, Handler, HandlerPattern, IntoHandler, IntoResponse,
+        MessageContent, OptionValue, Response, Shutdown, ShutdownSignal, Typing, User,
     };
 
     #[cfg(feature = "discord")]

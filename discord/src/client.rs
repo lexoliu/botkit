@@ -1,12 +1,23 @@
-use botkit_core::BotError;
-use futures_lite::io::AsyncReadExt;
+use botkit_core::{BotError, FileSource};
 use zenwave::Client;
+use zenwave::multipart::{Multipart, MultipartPart};
 
 const API_BASE: &str = "https://discord.com/api/v10";
+
+/// `PONG`, the only valid reply to a `PING` interaction.
+pub(crate) const INTERACTION_PONG: u8 = 1;
+/// Reply immediately with a visible message.
+pub(crate) const CHANNEL_MESSAGE_WITH_SOURCE: u8 = 4;
+/// Acknowledge now, send the real message as a follow-up.
+pub(crate) const DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE: u8 = 5;
+/// Message flag marking a response as visible only to the invoking user.
+pub(crate) const EPHEMERAL_FLAG: u32 = 1 << 6;
 
 /// Discord REST API client
 #[derive(Clone)]
 pub struct DiscordClient {
+    /// Pre-rendered `Bot <token>` header value, so it isn't rebuilt per request.
+    auth_header: String,
     token: String,
     application_id: String,
 }
@@ -14,8 +25,11 @@ pub struct DiscordClient {
 impl DiscordClient {
     /// Create a new Discord client
     pub fn new(token: impl Into<String>, application_id: impl Into<String>) -> Self {
+        let token = token.into();
         Self {
-            token: token.into(),
+            // Bot tokens use Discord's own `Bot` scheme, not `Bearer`.
+            auth_header: format!("Bot {token}"),
+            token,
             application_id: application_id.into(),
         }
     }
@@ -32,31 +46,32 @@ impl DiscordClient {
 
     /// Send a message to a channel
     pub async fn send_message(&self, channel_id: &str, content: &str) -> Result<(), BotError> {
-        let url = format!("{}/channels/{}/messages", API_BASE, channel_id);
+        let payload = serde_json::json!({ "content": content });
+        self.send_message_payload(channel_id, &payload).await
+    }
 
-        let body = serde_json::json!({
-            "content": content
-        });
+    /// Send a message with a full payload (embeds, components, ...)
+    pub async fn send_message_payload(
+        &self,
+        channel_id: &str,
+        payload: &serde_json::Value,
+    ) -> Result<(), BotError> {
+        let url = format!("{API_BASE}/channels/{channel_id}/messages");
 
-        let mut client = zenwave::client();
-        let response = client
+        let response = zenwave::client()
             .post(&url)
-            .bearer_auth(&self.token)
-            .json_body(&body)
+            .header("Authorization", self.auth_header.as_str())
+            .json_body(payload)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send message: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
+        check_status("send message", response)
     }
 
     /// Respond to an interaction
+    ///
+    /// Interaction callbacks are authorized by the interaction token itself, so
+    /// no bot authorization header is sent.
     pub async fn respond_interaction(
         &self,
         interaction_id: &str,
@@ -64,198 +79,157 @@ impl DiscordClient {
         response_type: u8,
         data: serde_json::Value,
     ) -> Result<(), BotError> {
-        let url = format!(
-            "{}/interactions/{}/{}/callback",
-            API_BASE, interaction_id, interaction_token
-        );
+        let url = format!("{API_BASE}/interactions/{interaction_id}/{interaction_token}/callback");
+        let body = serde_json::json!({ "type": response_type, "data": data });
 
-        let body = serde_json::json!({
-            "type": response_type,
-            "data": data
-        });
-
-        let mut client = zenwave::client();
-        let response = client
+        let response = zenwave::client()
             .post(&url)
             .json_body(&body)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to respond to interaction: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
+        check_status("respond to interaction", response)
     }
 
     /// Edit the original interaction response
     pub async fn edit_original_response(
         &self,
         interaction_token: &str,
-        data: serde_json::Value,
+        data: &serde_json::Value,
     ) -> Result<(), BotError> {
         let url = format!(
-            "{}/webhooks/{}/{}/messages/@original",
-            API_BASE, self.application_id, interaction_token
+            "{API_BASE}/webhooks/{}/{interaction_token}/messages/@original",
+            self.application_id
         );
 
-        let mut client = zenwave::client();
-        let response = client
+        let response = zenwave::client()
             .method(http_kit::Method::PATCH, &url)
-            .bearer_auth(&self.token)
-            .json_body(&data)
+            .header("Authorization", self.auth_header.as_str())
+            .json_body(data)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to edit response: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
+        check_status("edit response", response)
     }
 
     /// Send a follow-up message with a file attachment for an interaction
     pub async fn send_followup_file(
         &self,
         interaction_token: &str,
-        mut file: async_fs::File,
+        file: FileSource,
         filename: &str,
         content: Option<&str>,
     ) -> Result<(), BotError> {
-        use zenwave::multipart::{Multipart, MultipartPart};
-
-        let mut file_contents = Vec::new();
-        file.read_to_end(&mut file_contents)
-            .await
-            .map_err(|e| BotError::Other(e.to_string()))?;
-
         let url = format!(
-            "{}/webhooks/{}/{}",
-            API_BASE, self.application_id, interaction_token
+            "{API_BASE}/webhooks/{}/{interaction_token}",
+            self.application_id
         );
 
-        let mut payload = serde_json::json!({
-            "attachments": [{
-                "id": 0,
-                "filename": filename,
-            }]
-        });
-
-        if let Some(content) = content {
-            payload["content"] = serde_json::json!(content);
-        }
-
-        let mut multipart = Multipart::new();
-        multipart.push(MultipartPart::text("payload_json", payload.to_string()));
-        multipart.push(MultipartPart::binary(
-            "files[0]",
-            filename.to_owned(),
-            "application/octet-stream",
-            file_contents,
-        ));
-
-        let (boundary, body) = multipart.encode();
-        let content_type = format!("multipart/form-data; boundary={}", boundary);
-
-        let mut client = zenwave::client();
-        let response = client
+        // Follow-ups are authorized by the interaction token.
+        let (content_type, body) = attachment_form(filename, content, file).await?;
+        let response = zenwave::client()
             .post(&url)
             .header("Content-Type", content_type)
             .bytes_body(body)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send follow-up file: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
-    }
-
-    /// Trigger typing indicator in a channel
-    pub async fn trigger_typing(&self, channel_id: &str) -> Result<(), BotError> {
-        let url = format!("{}/channels/{}/typing", API_BASE, channel_id);
-
-        let mut client = zenwave::client();
-        let response = client
-            .post(&url)
-            .bearer_auth(&self.token)
-            .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
-
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to trigger typing: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
+        check_status("send follow-up file", response)
     }
 
     /// Send a file to a channel
     pub async fn send_file(
         &self,
         channel_id: &str,
-        mut file: async_fs::File,
+        file: FileSource,
         filename: &str,
         content: Option<&str>,
     ) -> Result<(), BotError> {
-        use zenwave::multipart::{Multipart, MultipartPart};
+        let url = format!("{API_BASE}/channels/{channel_id}/messages");
 
-        // Read file contents
-        let mut file_contents = Vec::new();
-        file.read_to_end(&mut file_contents)
-            .await
-            .map_err(|e| BotError::Other(e.to_string()))?;
-
-        let url = format!("{}/channels/{}/messages", API_BASE, channel_id);
-
-        // Build multipart form
-        let mut multipart = Multipart::new();
-
-        // payload_json field (message content)
-        if let Some(content) = content {
-            let payload = serde_json::json!({ "content": content }).to_string();
-            multipart.push(MultipartPart::text("payload_json", payload));
-        }
-
-        // file field
-        multipart.push(MultipartPart::binary(
-            "files[0]",
-            filename.to_owned(),
-            "application/octet-stream",
-            file_contents,
-        ));
-
-        let (boundary, body) = multipart.encode();
-        let content_type = format!("multipart/form-data; boundary={}", boundary);
-
-        let mut client = zenwave::client();
-        let response = client
+        let (content_type, body) = attachment_form(filename, content, file).await?;
+        let response = zenwave::client()
             .post(&url)
-            .bearer_auth(&self.token)
+            .header("Authorization", self.auth_header.as_str())
             .header("Content-Type", content_type)
             .bytes_body(body)
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Failed to send file: {}",
-                response.status()
-            )));
-        }
-
-        Ok(())
+        check_status("send file", response)
     }
+
+    /// Trigger typing indicator in a channel
+    pub async fn trigger_typing(&self, channel_id: &str) -> Result<(), BotError> {
+        let url = format!("{API_BASE}/channels/{channel_id}/typing");
+
+        let response = zenwave::client()
+            .post(&url)
+            .header("Authorization", self.auth_header.as_str())
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        check_status("trigger typing", response)
+    }
+
+    /// Register the bot's global slash commands, replacing the existing set
+    ///
+    /// Discord only offers a command in its UI once it is registered;
+    /// [`crate::DiscordBot`] does this on startup from the handlers you declared.
+    pub async fn set_global_commands(
+        &self,
+        commands: &[serde_json::Value],
+    ) -> Result<(), BotError> {
+        let url = format!("{API_BASE}/applications/{}/commands", self.application_id);
+
+        let response = zenwave::client()
+            .method(http_kit::Method::PUT, &url)
+            .header("Authorization", self.auth_header.as_str())
+            .json_body(&serde_json::Value::Array(commands.to_vec()))
+            .await
+            .map_err(|e| BotError::Api(e.to_string()))?;
+
+        check_status("register commands", response)
+    }
+}
+
+/// Build the `multipart/form-data` body Discord expects for one attachment.
+async fn attachment_form(
+    filename: &str,
+    content: Option<&str>,
+    file: FileSource,
+) -> Result<(String, Vec<u8>), BotError> {
+    let contents = file
+        .read()
+        .await
+        .map_err(|e| BotError::Other(format!("failed to read attachment: {e}")))?;
+
+    let mut payload = serde_json::json!({
+        "attachments": [{ "id": 0, "filename": filename }]
+    });
+    if let Some(content) = content {
+        payload["content"] = serde_json::json!(content);
+    }
+
+    let mut multipart = Multipart::new();
+    multipart.push(MultipartPart::text("payload_json", payload.to_string()));
+    multipart.push(MultipartPart::binary(
+        "files[0]",
+        filename.to_owned(),
+        "application/octet-stream",
+        contents,
+    ));
+
+    let (boundary, body) = multipart.encode();
+    Ok((format!("multipart/form-data; boundary={boundary}"), body))
+}
+
+fn check_status(what: &str, response: http_kit::Response) -> Result<(), BotError> {
+    if response.status().is_success() {
+        return Ok(());
+    }
+    Err(BotError::Api(format!(
+        "Discord: failed to {what} (HTTP {})",
+        response.status()
+    )))
 }

@@ -9,6 +9,15 @@ use matrix_sdk::ruma::events::room::message::{MessageType, OriginalSyncRoomMessa
 use crate::action::MatrixActionSender;
 use crate::client::MatrixClient;
 
+/// The button id a reaction is routed under.
+///
+/// Reactions share the button table so one handler can serve a Discord button
+/// and a Matrix reaction; keeping the id in one place stops registration and
+/// dispatch from drifting apart.
+pub fn reaction_button_id(emoji: &str) -> String {
+    format!("reaction:{emoji}")
+}
+
 /// Matrix context data - implements ContextData for platform abstraction
 pub struct MatrixContextData {
     /// Room where the event occurred
@@ -73,9 +82,7 @@ impl MatrixContextData {
         let user_id = event.sender.to_string();
         let user_name = event.sender.localpart().to_string();
 
-        // Map reaction emoji to button_id
-        let emoji = &event.content.relates_to.key;
-        let button_id = Some(format!("reaction:{}", emoji));
+        let button_id = Some(reaction_button_id(&event.content.relates_to.key));
 
         Self {
             room,
@@ -90,19 +97,29 @@ impl MatrixContextData {
         }
     }
 
+    /// Split `<prefix><name> <args>` out of a message body.
+    ///
+    /// An empty prefix would make every message a command, and a bare prefix
+    /// with no name is not a command either.
     fn parse_command(text: Option<&str>, prefix: &str) -> (Option<String>, Option<String>) {
-        let text = match text {
-            Some(t) if t.starts_with(prefix) => t,
-            _ => return (None, None),
+        if prefix.is_empty() {
+            return (None, None);
+        }
+
+        let Some(rest) = text.and_then(|t| t.strip_prefix(prefix)) else {
+            return (None, None);
         };
 
-        let without_prefix = &text[prefix.len()..];
-        let mut parts = without_prefix.splitn(2, char::is_whitespace);
+        let mut parts = rest.splitn(2, char::is_whitespace);
+        let name = parts.next().unwrap_or_default();
 
-        let command_name = parts.next().map(|s| s.to_string());
-        let command_args = parts.next().map(|s| s.trim().to_string());
+        if name.is_empty() {
+            return (None, None);
+        }
 
-        (command_name, command_args)
+        let args = parts.next().map(str::trim).filter(|a| !a.is_empty());
+
+        (Some(name.to_string()), args.map(str::to_string))
     }
 
     /// Get the Matrix Room for advanced operations
@@ -113,6 +130,19 @@ impl MatrixContextData {
     /// Get the client for making API calls
     pub fn client(&self) -> &MatrixClient {
         &self.client
+    }
+
+    /// The command this message invokes, if any
+    ///
+    /// Parsed once at construction, so routing and the `CommandName` extractor
+    /// always agree.
+    pub fn command(&self) -> Option<&str> {
+        self.command_name.as_deref()
+    }
+
+    /// The message body, absent for non-text messages and reactions
+    pub fn message_text(&self) -> Option<&str> {
+        self.message_content.as_deref()
     }
 }
 
@@ -156,5 +186,69 @@ impl ContextData for MatrixContextData {
 
     fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
         Some(Box::new(MatrixActionSender::new(self.room.clone())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MatrixContextData;
+
+    fn parse(text: &str, prefix: &str) -> (Option<String>, Option<String>) {
+        MatrixContextData::parse_command(Some(text), prefix)
+    }
+
+    #[test]
+    fn parses_a_command_with_arguments() {
+        let (name, args) = parse("!greet world and beyond", "!");
+        assert_eq!(name.as_deref(), Some("greet"));
+        assert_eq!(args.as_deref(), Some("world and beyond"));
+    }
+
+    #[test]
+    fn parses_a_bare_command() {
+        assert_eq!(parse("!ping", "!"), (Some("ping".into()), None));
+    }
+
+    #[test]
+    fn trailing_whitespace_is_not_an_argument() {
+        assert_eq!(parse("!ping   ", "!"), (Some("ping".into()), None));
+    }
+
+    #[test]
+    fn multi_character_prefixes_work() {
+        assert_eq!(
+            parse(">>ping now", ">>"),
+            (Some("ping".into()), Some("now".into()))
+        );
+    }
+
+    #[test]
+    fn messages_without_the_prefix_are_not_commands() {
+        assert_eq!(parse("ping", "!"), (None, None));
+        assert_eq!(parse("hey !ping", "!"), (None, None));
+    }
+
+    #[test]
+    fn a_bare_prefix_is_not_a_command() {
+        assert_eq!(parse("!", "!"), (None, None));
+        assert_eq!(parse("! ping", "!"), (None, None));
+    }
+
+    #[test]
+    fn an_empty_prefix_does_not_make_everything_a_command() {
+        assert_eq!(parse("hello", ""), (None, None));
+    }
+
+    #[test]
+    fn non_ascii_prefixes_split_on_character_boundaries() {
+        assert_eq!(
+            parse("🤖ping now", "🤖"),
+            (Some("ping".into()), Some("now".into()))
+        );
+    }
+
+    #[test]
+    fn absent_text_is_not_a_command() {
+        assert_eq!(MatrixContextData::parse_command(None, "!"), (None, None));
     }
 }

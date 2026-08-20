@@ -1,5 +1,4 @@
-use botkit_core::BotError;
-use futures_lite::io::AsyncReadExt;
+use botkit_core::{BotError, FileSource};
 use serde::de::DeserializeOwned;
 use zenwave::Client;
 
@@ -72,20 +71,22 @@ impl TelegramClient {
     where
         T: DeserializeOwned,
     {
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Telegram {method} failed with HTTP {}",
-                response.status()
-            )));
-        }
-
+        // Telegram reports most failures as a 4xx whose body carries the real
+        // reason, so read the body before deciding what to report.
+        let status = response.status();
         let body = response
             .into_body()
             .into_string()
             .await
             .map_err(|e| BotError::Api(e.to_string()))?;
 
-        parse_api_response(method, &body)
+        parse_api_response(method, &body).map_err(|e| {
+            if status.is_success() {
+                e
+            } else {
+                BotError::Api(format!("Telegram {method} failed with HTTP {status}: {e}"))
+            }
+        })
     }
 
     /// Send a text message
@@ -215,16 +216,16 @@ impl TelegramClient {
     pub async fn send_document(
         &self,
         chat_id: i64,
-        mut file: async_fs::File,
+        file: FileSource,
         filename: Option<&str>,
         caption: Option<&str>,
     ) -> Result<(), BotError> {
         use zenwave::multipart::{Multipart, MultipartPart};
 
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)
+        let contents = file
+            .read()
             .await
-            .map_err(|e| BotError::Other(e.to_string()))?;
+            .map_err(|e| BotError::Other(format!("failed to read attachment: {e}")))?;
 
         let filename = filename.unwrap_or("file");
 

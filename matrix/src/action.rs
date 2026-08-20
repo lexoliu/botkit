@@ -40,7 +40,14 @@ impl ChatActionSender for MatrixActionSender {
         Duration::from_secs(4)
     }
 
-    fn clone_boxed(&self) -> Box<dyn ChatActionSender> {
-        Box::new(self.clone())
+    fn clear_action(&self) -> ChatActionFuture<'_> {
+        // Unlike Discord and Telegram, a Matrix typing notice stays up until
+        // it is retracted or its timeout lapses, so retract it eagerly.
+        Box::pin(async move {
+            self.room
+                .typing_notice(false)
+                .await
+                .map_err(|e| BotError::Api(e.to_string()))
+        })
     }
 }
