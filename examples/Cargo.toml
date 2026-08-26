@@ -6,38 +6,31 @@ license.workspace = true
 publish = false
 
 [[bin]]
-name = "unified"
-path = "unified.rs"
+name = "telegram_polling"
+path = "telegram_polling.rs"
 
 [[bin]]
-name = "test_telegram"
-path = "test_telegram.rs"
+name = "telegram_typing_and_files"
+path = "telegram_typing_and_files.rs"
 
 [[bin]]
-name = "test_polling"
-path = "test_polling.rs"
+name = "discord"
+path = "discord.rs"
 
 [[bin]]
-name = "typing_and_files"
-path = "typing_and_files.rs"
-
-[[bin]]
-name = "debug_polling"
-path = "debug_polling.rs"
-
-[[bin]]
-name = "test_matrix"
-path = "test_matrix.rs"
+name = "matrix"
+path = "matrix.rs"
 
 [dependencies]
-async-executor = "1"
-async-fs = "2"
-async-io = "2"
 botkit-core.workspace = true
-botkit-discord = { path = "../discord" }
-botkit-telegram = { path = "../telegram" }
-botkit-matrix = { path = "../matrix" }
-tracing-subscriber = "0.3"
-skyzen.workspace = true
+botkit-discord.workspace = true
+botkit-telegram.workspace = true
+botkit-matrix.workspace = true
+async-executor = "1.14"
+async-fs = "2.2"
+async-io = "2.6"
+ctrlc = "3.5"
 futures-lite.workspace = true
-executor-core.workspace = true
+# `async-executor` teaches executor-core how to drive an `async_executor::Executor`.
+executor-core = { workspace = true, features = ["async-executor"] }
+tracing-subscriber = "0.3.23"

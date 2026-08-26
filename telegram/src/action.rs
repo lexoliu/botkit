@@ -50,8 +50,4 @@ impl ChatActionSender for TelegramActionSender {
         // Telegram typing expires after 5 seconds
         Duration::from_secs(5)
     }
-
-    fn clone_boxed(&self) -> Box<dyn ChatActionSender> {
-        Box::new(self.clone())
-    }
 }

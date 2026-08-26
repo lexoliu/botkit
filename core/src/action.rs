@@ -1,7 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,8 +26,8 @@ impl<T: ?Sized> ChatActionSenderBounds for T {}
 
 /// Chat action types for platform indicators
 ///
-/// Internal enum - not exported publicly. Used by framework
-/// to show appropriate indicators (typing, uploading, etc.)
+/// Used by the framework to show the appropriate indicator (typing, uploading,
+/// and so on). Platforms that only support typing map every variant onto it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChatAction {
     /// User is typing a message
@@ -68,14 +66,20 @@ pub trait ChatActionSender: ChatActionSenderBounds + 'static {
     /// Used for auto-renewal: renew at 80% of this duration.
     fn action_expiry(&self) -> Duration;
 
-    /// Clone this sender into a boxed trait object
-    fn clone_boxed(&self) -> Box<dyn ChatActionSender>;
+    /// Clear the indicator early
+    ///
+    /// Called when the guard drops. Platforms that expire indicators on a timer
+    /// (Discord, Telegram) need nothing here; Matrix uses it to retract the
+    /// typing notice immediately.
+    fn clear_action(&self) -> ChatActionFuture<'_> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// RAII guard that keeps a chat action active until dropped
 ///
 /// When created, immediately sends the action and starts auto-renewal.
-/// When dropped, signals the background task to stop.
+/// When dropped, the renewal task stops promptly and clears the indicator.
 ///
 /// # Example
 /// ```ignore
@@ -86,7 +90,9 @@ pub trait ChatActionSender: ChatActionSenderBounds + 'static {
 /// }  // Typing stops when _typing is dropped
 /// ```
 pub struct ChatActionGuard {
-    stop_flag: Arc<AtomicBool>,
+    /// Closed on drop; the renewal task selects on it so it wakes immediately
+    /// instead of sleeping out the rest of its interval.
+    stop: async_channel::Sender<()>,
 }
 
 impl ChatActionGuard {
@@ -95,35 +101,58 @@ impl ChatActionGuard {
     /// The action is sent immediately and renewed automatically until
     /// the guard is dropped.
     pub fn start(sender: Box<dyn ChatActionSender>, action: ChatAction) -> Self {
-        let stop_flag = Arc::new(AtomicBool::new(false));
-        let flag_clone = Arc::clone(&stop_flag);
+        let (stop, stopped) = async_channel::bounded::<()>(1);
 
-        // Calculate renewal interval (80% of expiry time)
-        let expiry = sender.action_expiry();
-        let renewal_interval = Duration::from_millis((expiry.as_millis() as u64 * 80) / 100);
+        // Renew ahead of expiry so the indicator never visibly flickers. A
+        // sender that reports no expiry still gets one initial send.
+        let renewal_interval = sender.action_expiry().mul_f32(0.8);
 
         spawn_renewal(async move {
-            // Send initial action
             let _ = sender.send_action(action).await;
 
-            loop {
-                // Sleep for renewal interval
-                sleep_for(renewal_interval).await;
+            while !renewal_interval.is_zero() {
+                // Whichever comes first: the renewal deadline, or the guard
+                // dropping and closing the channel.
+                let on_stop = async {
+                    // Resolves once the guard drops and closes the channel.
+                    while stopped.recv().await.is_ok() {}
+                };
 
-                // Check if we should stop
-                if flag_clone.load(Ordering::Acquire) {
+                if race(sleep_for(renewal_interval), on_stop).await.is_err() {
                     break;
                 }
 
-                // Renew the action
                 if sender.send_action(action).await.is_err() {
-                    break;
+                    return;
                 }
             }
+
+            let _ = sender.clear_action().await;
         });
 
-        Self { stop_flag }
+        Self { stop }
     }
+}
+
+impl Drop for ChatActionGuard {
+    fn drop(&mut self) {
+        self.stop.close();
+    }
+}
+
+/// Resolve to `Ok` if `left` finishes first, `Err` if `right` does.
+async fn race<L: Future<Output = ()>, R: Future<Output = ()>>(left: L, right: R) -> Result<(), ()> {
+    futures_lite::future::or(
+        async {
+            left.await;
+            Ok(())
+        },
+        async {
+            right.await;
+            Err(())
+        },
+    )
+    .await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -144,10 +173,4 @@ async fn sleep_for(duration: Duration) {
 #[cfg(target_arch = "wasm32")]
 fn spawn_renewal(task: impl Future<Output = ()> + 'static) {
     executor_core::spawn_local(task).detach();
-}
-
-impl Drop for ChatActionGuard {
-    fn drop(&mut self) {
-        self.stop_flag.store(true, Ordering::Release);
-    }
 }

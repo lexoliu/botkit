@@ -15,12 +15,7 @@ async fn start() -> &'static str {
 
 #[skyzen::main]
 fn main() -> TelegramWebhook {
-    // Support both BOT_TOKEN and TG_BOT_CODE env vars
-    let token = std::env::var("BOT_TOKEN")
-        .or_else(|_| std::env::var("TG_BOT_CODE"))
-        .expect("BOT_TOKEN or TG_BOT_CODE env var required");
-
-    println!("Testing Telegram bot with token...");
+    let token = std::env::var("BOT_TOKEN").expect("BOT_TOKEN env var required");
 
     // Build the webhook handler - it implements Endpoint so can be returned directly
     let webhook = TelegramBot::new(&token)
@@ -29,7 +24,6 @@ fn main() -> TelegramWebhook {
         .command("greet", greet)
         .build();
 
-    println!("Bot configured!");
     println!("Commands: /ping, /start, /greet");
     println!("\nStarting server on http://127.0.0.1:3000");
     println!("Telegram webhook endpoint: POST /");

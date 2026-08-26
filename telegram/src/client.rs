@@ -1,5 +1,4 @@
-use botkit_core::BotError;
-use futures_lite::io::AsyncReadExt;
+use botkit_core::{BotError, FileSource};
 use serde::de::DeserializeOwned;
 use zenwave::Client;
 
@@ -16,6 +15,8 @@ pub struct TelegramClient {
 impl TelegramClient {
     /// Create a new Telegram client
     pub fn new(token: impl Into<String>) -> Self {
+        install_crypto_provider();
+
         Self {
             token: token.into(),
         }
@@ -30,6 +31,14 @@ impl TelegramClient {
         format!("{}/bot{}/{}", API_BASE, self.token, method)
     }
 
+    /// Map a transport error, keeping the bot token out of the message.
+    ///
+    /// Telegram authenticates by putting the token in the request path, so any
+    /// error that echoes the URL would otherwise leak it into logs.
+    fn api_error(&self, error: impl std::fmt::Display) -> BotError {
+        BotError::Api(error.to_string().replace(&self.token, "<token>"))
+    }
+
     async fn post_json<T>(&self, method: &str, body: &serde_json::Value) -> Result<T, BotError>
     where
         T: DeserializeOwned,
@@ -37,9 +46,11 @@ impl TelegramClient {
         let mut client = zenwave::client();
         let response = client
             .post(self.api_url(method))
+            .map_err(|e| self.api_error(e))?
             .json_body(body)
+            .map_err(|e| self.api_error(e))?
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(|e| self.api_error(e))?;
 
         self.decode_response(method, response).await
     }
@@ -56,10 +67,12 @@ impl TelegramClient {
         let mut client = zenwave::client();
         let response = client
             .post(self.api_url(method))
+            .map_err(|e| self.api_error(e))?
             .header("Content-Type", content_type)
+            .map_err(|e| self.api_error(e))?
             .bytes_body(body)
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(|e| self.api_error(e))?;
 
         self.decode_response(method, response).await
     }
@@ -72,20 +85,22 @@ impl TelegramClient {
     where
         T: DeserializeOwned,
     {
-        if !response.status().is_success() {
-            return Err(BotError::Api(format!(
-                "Telegram {method} failed with HTTP {}",
-                response.status()
-            )));
-        }
-
+        // Telegram reports most failures as a 4xx whose body carries the real
+        // reason, so read the body before deciding what to report.
+        let status = response.status();
         let body = response
             .into_body()
             .into_string()
             .await
-            .map_err(|e| BotError::Api(e.to_string()))?;
+            .map_err(|e| self.api_error(e))?;
 
-        parse_api_response(method, &body)
+        parse_api_response(method, &body).map_err(|e| {
+            if status.is_success() {
+                e
+            } else {
+                BotError::Api(format!("Telegram {method} failed with HTTP {status}: {e}"))
+            }
+        })
     }
 
     /// Send a text message
@@ -215,16 +230,16 @@ impl TelegramClient {
     pub async fn send_document(
         &self,
         chat_id: i64,
-        mut file: async_fs::File,
+        file: FileSource,
         filename: Option<&str>,
         caption: Option<&str>,
     ) -> Result<(), BotError> {
         use zenwave::multipart::{Multipart, MultipartPart};
 
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)
+        let contents = file
+            .read()
             .await
-            .map_err(|e| BotError::Other(e.to_string()))?;
+            .map_err(|e| BotError::Other(format!("failed to read attachment: {e}")))?;
 
         let filename = filename.unwrap_or("file");
 
@@ -249,6 +264,20 @@ impl TelegramClient {
             .post_multipart("sendDocument", content_type, body)
             .await?;
         Ok(())
+    }
+}
+
+/// Make sure rustls has a process-wide crypto provider before any TLS happens.
+///
+/// rustls only auto-detects a provider when exactly one is compiled in. A bot
+/// that talks to Matrix *and* Discord or Telegram pulls both `ring` and
+/// `aws-lc-rs` into the build, and rustls then refuses to guess — it panics on
+/// the first handshake. Installing one explicitly is what keeps a unified bot
+/// working; whichever adapter gets there first wins, and the rest are no-ops.
+fn install_crypto_provider() {
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        // Fails only if another thread won the race, which is just as good.
+        let _ = rustls::crypto::ring::default_provider().install_default();
     }
 }
 
@@ -280,7 +309,25 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::parse_api_response;
+    use super::{TelegramClient, parse_api_response};
+
+    #[test]
+    fn building_a_client_installs_a_crypto_provider() {
+        // Without this, a bot that also talks to Matrix panics on its first TLS
+        // handshake: both `ring` and `aws-lc-rs` end up compiled in and rustls
+        // refuses to pick one for you.
+        let _client = TelegramClient::new("token");
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+    }
+
+    #[test]
+    fn redacts_the_token_from_error_messages() {
+        // The token lives in every request path, so it must never reach a log.
+        let client = TelegramClient::new("123456:SECRET");
+        let error = client.api_error("connect to https://api.telegram.org/bot123456:SECRET/x");
+        assert!(!error.to_string().contains("SECRET"), "{error}");
+        assert!(error.to_string().contains("<token>"), "{error}");
+    }
 
     #[test]
     fn parses_successful_api_response() {

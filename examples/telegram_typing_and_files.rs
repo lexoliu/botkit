@@ -7,7 +7,7 @@
 
 use async_fs::File;
 use async_io::Timer;
-use botkit_core::{Response, Typing, User};
+use botkit_core::{Bot, Response, Shutdown, Typing, User};
 use botkit_telegram::TelegramBot;
 use std::time::Duration;
 
@@ -51,9 +51,7 @@ async fn start() -> &'static str {
 }
 
 fn main() {
-    let token = std::env::var("BOT_TOKEN")
-        .or_else(|_| std::env::var("TG_BOT_CODE"))
-        .expect("BOT_TOKEN or TG_BOT_CODE env var required");
+    let token = std::env::var("BOT_TOKEN").expect("BOT_TOKEN env var required");
 
     eprintln!("Starting typing & files demo bot...");
     eprintln!("Commands: /start, /think, /file, /filewithcaption, /download");
@@ -63,6 +61,9 @@ fn main() {
     let ex: &'static async_executor::Executor<'static> =
         Box::leak(Box::new(async_executor::Executor::new()));
     executor_core::init_global_executor(ex);
+
+    let (signal, shutdown) = Shutdown::channel();
+    ctrlc::set_handler(move || signal.shutdown()).expect("install Ctrl-C handler");
 
     // Run the bot with the executor driving spawned tasks
     futures_lite::future::block_on(ex.run(async {
@@ -76,8 +77,8 @@ fn main() {
                 get_file_with_caption,
             )
             .command_with_description("download", "Sends file with custom name", download)
-            .run_polling()
+            .run_until(shutdown)
             .await
     }))
-    .unwrap();
+    .expect("bot failed");
 }

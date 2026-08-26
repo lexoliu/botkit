@@ -15,5 +15,6 @@ serde.workspace = true
 serde_json.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
-async-fs = "2"
-tracing = "0.1"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+async-io = "2.6"
+tracing = "0.1.44"

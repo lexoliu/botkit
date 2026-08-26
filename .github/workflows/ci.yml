@@ -17,7 +17,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN: 1.91.1
+  RUST_TOOLCHAIN: 1.97.1
 
 jobs:
   lint:
@@ -34,6 +34,12 @@ jobs:
           shared-key: ci-ubuntu
       - run: cargo fmt --all -- --check
       - run: cargo clippy --all-targets --all-features -- -D warnings
+      # examples/webhook is deliberately its own workspace (see its manifest),
+      # so --workspace above does not reach it.
+      - run: cargo fmt --all -- --check
+        working-directory: examples/webhook
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: examples/webhook
 
   wasm:
     name: WASM

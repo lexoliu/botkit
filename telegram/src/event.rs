@@ -12,59 +12,44 @@ pub struct TelegramContextData {
     pub update: Update,
     // Client for API calls
     client: TelegramClient,
-    // Cached values
+    // Values derived once at construction, so the accessors can hand out
+    // borrows instead of rebuilding strings on every call.
     channel_id: String,
-    chat_id: i64,
+    chat_id: Option<i64>,
     user_id: String,
     user_name: String,
     command_name: Option<String>,
     command_args: Option<String>,
-    button_id: Option<String>,
-    message_content: Option<String>,
 }
 
 impl TelegramContextData {
     pub fn new(update: Update, client: TelegramClient) -> Self {
-        let (chat_id, user_id, user_name, message_content) = match &update.kind {
+        let (chat_id, user) = match &update.kind {
             UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => {
-                let user = m.from.as_ref();
-                (
-                    m.chat.id,
-                    user.map(|u| u.id.to_string()).unwrap_or_default(),
-                    user.map(|u| u.first_name.clone()).unwrap_or_default(),
-                    m.text.clone(),
-                )
+                (Some(m.chat.id), m.from.as_ref())
             }
+            // An inline-message callback has no chat to reply in.
             UpdateKind::CallbackQuery(cq) => {
-                let chat_id = cq.message.as_ref().map(|m| m.chat.id).unwrap_or(0);
-                (
-                    chat_id,
-                    cq.from.id.to_string(),
-                    cq.from.first_name.clone(),
-                    cq.message.as_ref().and_then(|m| m.text.clone()),
-                )
+                (cq.message.as_ref().map(|m| m.chat.id), Some(&cq.from))
             }
-            _ => (0, String::new(), String::new(), None),
+            UpdateKind::Unknown => (None, None),
         };
 
-        let (command_name, command_args) = Self::extract_command(&update);
+        let (user_id, user_name) = user
+            .map(|u| (u.id.to_string(), display_name(u)))
+            .unwrap_or_default();
 
-        let button_id = match &update.kind {
-            UpdateKind::CallbackQuery(cq) => cq.data.clone(),
-            _ => None,
-        };
+        let (command_name, command_args) = extract_command(&update);
 
         Self {
-            update,
-            client,
-            channel_id: chat_id.to_string(),
+            channel_id: chat_id.map(|id| id.to_string()).unwrap_or_default(),
             chat_id,
             user_id,
             user_name,
             command_name,
             command_args,
-            button_id,
-            message_content,
+            update,
+            client,
         }
     }
 
@@ -73,51 +58,87 @@ impl TelegramContextData {
         &self.client
     }
 
-    /// Get the numeric chat ID
-    pub fn chat_id(&self) -> i64 {
+    /// The numeric chat ID, absent for updates with no chat to reply in
+    pub fn chat_id(&self) -> Option<i64> {
         self.chat_id
     }
+}
 
-    fn extract_command(update: &Update) -> (Option<String>, Option<String>) {
-        let message = match &update.kind {
-            UpdateKind::Message(m) => m,
-            _ => return (None, None),
-        };
-
-        let text = match &message.text {
-            Some(t) => t,
-            None => return (None, None),
-        };
-
-        let entities = match &message.entities {
-            Some(e) => e,
-            None => return (None, None),
-        };
-
-        // Find bot_command entity at offset 0
-        let cmd_entity = entities
-            .iter()
-            .find(|e| matches!(e.entity_type, EntityType::BotCommand) && e.offset == 0);
-
-        let cmd_entity = match cmd_entity {
-            Some(e) => e,
-            None => return (None, None),
-        };
-
-        let cmd_text = &text[..cmd_entity.length as usize];
-        // Remove leading '/' and any @bot_name suffix
-        let name = cmd_text
-            .trim_start_matches('/')
-            .split('@')
-            .next()
-            .unwrap_or("")
-            .to_string();
-
-        let args = text[cmd_entity.length as usize..].trim().to_string();
-        let args = if args.is_empty() { None } else { Some(args) };
-
-        (Some(name), args)
+/// Telegram only guarantees `first_name`; append the surname when present.
+fn display_name(user: &crate::types::User) -> String {
+    match &user.last_name {
+        Some(last) => format!("{} {last}", user.first_name),
+        None => user.first_name.clone(),
     }
+}
+
+/// Pull `/command@bot args` out of a message.
+///
+/// Entity offsets and lengths come straight off the wire and are counted in
+/// UTF-16 code units, so they are resolved against the text's UTF-16 view and
+/// every index is checked - a malformed update must not panic the webhook.
+fn extract_command(update: &Update) -> (Option<String>, Option<String>) {
+    let UpdateKind::Message(message) = &update.kind else {
+        return (None, None);
+    };
+
+    let (Some(text), Some(entities)) = (&message.text, &message.entities) else {
+        return (None, None);
+    };
+
+    // Telegram only treats a command as an invocation when it opens the message.
+    let entity = entities
+        .iter()
+        .find(|e| matches!(e.entity_type, EntityType::BotCommand) && e.offset == 0);
+
+    let Some(entity) = entity.filter(|e| e.length > 0) else {
+        return (None, None);
+    };
+
+    let split = usize::try_from(entity.length)
+        .ok()
+        .and_then(|length| utf16_offset_to_byte_index(text, length));
+
+    let Some(split) = split else {
+        return (None, None);
+    };
+
+    let (command, rest) = text.split_at(split);
+
+    // Strip the leading slash and any `@bot_name` suffix.
+    let name = command
+        .trim_start_matches('/')
+        .split('@')
+        .next()
+        .unwrap_or_default();
+
+    if name.is_empty() {
+        return (None, None);
+    }
+
+    let args = rest.trim();
+    (
+        Some(name.to_string()),
+        (!args.is_empty()).then(|| args.to_string()),
+    )
+}
+
+/// Convert a UTF-16 code-unit offset into a byte index, or `None` if it runs
+/// past the end of the string or lands mid-character.
+fn utf16_offset_to_byte_index(text: &str, offset: usize) -> Option<usize> {
+    if offset == 0 {
+        return Some(0);
+    }
+
+    let mut units = 0;
+    for (index, ch) in text.char_indices() {
+        if units == offset {
+            return Some(index);
+        }
+        units += ch.len_utf16();
+    }
+
+    (units == offset).then_some(text.len())
 }
 
 impl ContextData for TelegramContextData {
@@ -147,11 +168,18 @@ impl ContextData for TelegramContextData {
     }
 
     fn button_id(&self) -> Option<&str> {
-        self.button_id.as_deref()
+        match &self.update.kind {
+            UpdateKind::CallbackQuery(cq) => cq.data.as_deref(),
+            _ => None,
+        }
     }
 
     fn message_content(&self) -> Option<&str> {
-        self.message_content.as_deref()
+        match &self.update.kind {
+            UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => m.text.as_deref(),
+            UpdateKind::CallbackQuery(cq) => cq.message.as_ref()?.text.as_deref(),
+            UpdateKind::Unknown => None,
+        }
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -159,12 +187,173 @@ impl ContextData for TelegramContextData {
     }
 
     fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
-        if self.chat_id == 0 {
-            return None;
-        }
         Some(Box::new(TelegramActionSender::new(
             self.client.clone(),
-            self.chat_id,
+            self.chat_id?,
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn update(json: serde_json::Value) -> Update {
+        serde_json::from_value(json).expect("valid update")
+    }
+
+    fn message(text: &str, entities: serde_json::Value) -> Update {
+        update(serde_json::json!({
+            "update_id": 1,
+            "message": {
+                "message_id": 1,
+                "date": 0,
+                "chat": { "id": 42, "type": "private" },
+                "from": { "id": 7, "is_bot": false, "first_name": "Ada", "last_name": "Lovelace" },
+                "text": text,
+                "entities": entities,
+            }
+        }))
+    }
+
+    fn command_entity(length: i64) -> serde_json::Value {
+        serde_json::json!([{ "type": "bot_command", "offset": 0, "length": length }])
+    }
+
+    #[test]
+    fn parses_a_command_with_arguments() {
+        let update = message("/greet world and beyond", command_entity(6));
+        let (name, args) = extract_command(&update);
+        assert_eq!(name.as_deref(), Some("greet"));
+        assert_eq!(args.as_deref(), Some("world and beyond"));
+    }
+
+    #[test]
+    fn parses_a_bare_command() {
+        let (name, args) = extract_command(&message("/ping", command_entity(5)));
+        assert_eq!(name.as_deref(), Some("ping"));
+        assert_eq!(args, None);
+    }
+
+    #[test]
+    fn strips_the_bot_mention_suffix() {
+        let (name, args) = extract_command(&message("/ping@my_bot now", command_entity(12)));
+        assert_eq!(name.as_deref(), Some("ping"));
+        assert_eq!(args.as_deref(), Some("now"));
+    }
+
+    #[test]
+    fn ignores_commands_that_do_not_open_the_message() {
+        let update = message(
+            "see /ping",
+            serde_json::json!([{ "type": "bot_command", "offset": 4, "length": 5 }]),
+        );
+        assert_eq!(extract_command(&update), (None, None));
+    }
+
+    #[test]
+    fn ignores_messages_without_a_command_entity() {
+        let update = message("just chatting", serde_json::json!([]));
+        assert_eq!(extract_command(&update), (None, None));
+    }
+
+    #[test]
+    fn entity_lengths_are_counted_in_utf16_code_units() {
+        // The emoji is one char but two UTF-16 units, so the arguments start at
+        // byte 9 even though the command is 7 chars long.
+        let update = message("/wave🎉 hi", command_entity(7));
+        let (name, args) = extract_command(&update);
+        assert_eq!(name.as_deref(), Some("wave🎉"));
+        assert_eq!(args.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn out_of_range_entity_lengths_do_not_panic() {
+        for length in [-1, 0, 6, 9999] {
+            let update = message("/ping", command_entity(length));
+            assert_eq!(extract_command(&update), (None, None), "length {length}");
+        }
+    }
+
+    #[test]
+    fn entity_lengths_landing_mid_character_do_not_panic() {
+        // Length 1 splits the 2-unit emoji in half.
+        let update = message("🎉x", command_entity(1));
+        assert_eq!(extract_command(&update), (None, None));
+    }
+
+    #[test]
+    fn callback_queries_expose_their_button_and_chat() {
+        let update = update(serde_json::json!({
+            "update_id": 2,
+            "callback_query": {
+                "id": "cb1",
+                "from": { "id": 7, "is_bot": false, "first_name": "Ada" },
+                "chat_instance": "x",
+                "data": "confirm_yes",
+                "message": {
+                    "message_id": 1,
+                    "date": 0,
+                    "chat": { "id": 42, "type": "private" },
+                    "text": "Are you sure?"
+                }
+            }
+        }));
+
+        let data = TelegramContextData::new(update, TelegramClient::new("token"));
+        assert_eq!(data.chat_id(), Some(42));
+        assert_eq!(data.button_id(), Some("confirm_yes"));
+        assert_eq!(data.command_name(), None);
+        assert_eq!(data.message_content(), Some("Are you sure?"));
+        assert_eq!(data.user_name(), "Ada");
+    }
+
+    #[test]
+    fn inline_callback_queries_have_no_chat_to_reply_in() {
+        let update = update(serde_json::json!({
+            "update_id": 3,
+            "callback_query": {
+                "id": "cb2",
+                "from": { "id": 7, "is_bot": false, "first_name": "Ada" },
+                "chat_instance": "x",
+                "inline_message_id": "inline-1",
+                "data": "x"
+            }
+        }));
+
+        let data = TelegramContextData::new(update, TelegramClient::new("token"));
+        assert_eq!(data.chat_id(), None);
+        assert_eq!(data.channel_id(), "");
+        assert!(data.action_sender().is_none());
+    }
+
+    #[test]
+    fn messages_expose_the_sender_and_chat() {
+        let data = TelegramContextData::new(
+            message("/greet you", command_entity(6)),
+            TelegramClient::new("token"),
+        );
+        assert_eq!(data.chat_id(), Some(42));
+        assert_eq!(data.channel_id(), "42");
+        assert_eq!(data.user_id(), "7");
+        assert_eq!(data.user_name(), "Ada Lovelace");
+        assert_eq!(data.command_name(), Some("greet"));
+        assert_eq!(data.command_args(), Some("you"));
+        assert!(data.action_sender().is_some());
+    }
+
+    #[test]
+    fn unsupported_update_kinds_are_inert() {
+        let update = update(serde_json::json!({
+            "update_id": 4,
+            "poll": { "id": "p1" }
+        }));
+
+        let data = TelegramContextData::new(update, TelegramClient::new("token"));
+        assert_eq!(data.chat_id(), None);
+        assert_eq!(data.user_id(), "");
+        assert_eq!(data.command_name(), None);
+        assert_eq!(data.button_id(), None);
+        assert_eq!(data.message_content(), None);
     }
 }

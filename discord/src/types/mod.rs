@@ -1,3 +1,4 @@
+pub(crate) mod component;
 mod interaction;
 mod message;
 mod user;

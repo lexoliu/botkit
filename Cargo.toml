@@ -13,6 +13,9 @@ categories = ["asynchronous", "api-bindings"]
 [workspace]
 resolver = "2"
 members = ["core", "discord", "telegram", "matrix", "examples"]
+# See examples/webhook/Cargo.toml: skyzen and matrix-sdk both pull a package
+# that links `sqlite3`, and cargo rejects that across a whole workspace.
+exclude = ["examples/webhook"]
 
 [workspace.package]
 edition = "2024"
@@ -29,19 +32,18 @@ botkit-matrix = { version = "0.1.0", path = "matrix" }
 
 # HTTP foundation
 http-kit = "0.4.2"
-skyzen = "0.1.0"
-zenwave = "0.3.0"
+zenwave = "0.5.0"
 
 # Serialization
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 
 # Error handling
-thiserror = "2.0.17"
+thiserror = "2.0.20"
 
 # Async runtime
-futures-lite = "2"
-executor-core = "0.7"
+futures-lite = "2.6"
+executor-core = "0.7.1"
 
 [features]
 default = []
