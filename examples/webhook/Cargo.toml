@@ -29,4 +29,3 @@ botkit-discord = { path = "../../discord" }
 botkit-telegram = { path = "../../telegram" }
 skyzen = "0.1.2"
 executor-core = "0.7.1"
-futures-lite = "2.6"

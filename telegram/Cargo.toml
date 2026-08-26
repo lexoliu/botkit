@@ -16,6 +16,5 @@ serde_json.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
-async-fs = "2.2"
 async-io = "2.6"
 tracing = "0.1.44"
