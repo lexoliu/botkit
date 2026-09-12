@@ -266,7 +266,7 @@ mod tests {
     }
 
     fn message(text: &str) -> Inbound {
-        Inbound::Message(InboundMessage {
+        Inbound::Message(Box::new(InboundMessage {
             chat: "c1".to_string(),
             user: user(),
             message_id: None,
@@ -277,7 +277,7 @@ mod tests {
             files: vec![],
             sticker: None,
             ambient: false,
-        })
+        }))
     }
 
     fn outbound_lines(rx: &Receiver<String>) -> Vec<Outbound> {

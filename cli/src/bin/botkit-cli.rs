@@ -124,7 +124,7 @@ fn build_event(command: &str, args: &mut Args) -> Result<Inbound, String> {
     };
 
     match command {
-        "message" | "send" => Ok(Inbound::Message(InboundMessage {
+        "message" | "send" => Ok(Inbound::Message(Box::new(InboundMessage {
             chat,
             user,
             message_id: args.i64("--message-id"),
@@ -165,7 +165,7 @@ fn build_event(command: &str, args: &mut Args) -> Result<Inbound, String> {
             ambient: args
                 .opt_value("--ambient")
                 .is_some_and(|v| !matches!(v.as_str(), "false" | "0" | "no")),
-        })),
+        }))),
         "command" => Ok(Inbound::Command(InboundCommand {
             chat,
             user,

@@ -188,7 +188,7 @@ pub enum Inbound {
     /// the socket transport; on stdio the single stream is implicit.
     Subscribe,
     /// A plain or media message.
-    Message(InboundMessage),
+    Message(Box<InboundMessage>),
     /// A command invocation.
     Command(InboundCommand),
     /// An inline-button press.
@@ -440,7 +440,7 @@ mod tests {
 
     #[test]
     fn inbound_message_round_trips() {
-        let event = Inbound::Message(InboundMessage {
+        let event = Inbound::Message(Box::new(InboundMessage {
             chat: "c1".to_string(),
             user: user(),
             message_id: Some(7),
@@ -456,7 +456,7 @@ mod tests {
             }],
             sticker: None,
             ambient: false,
-        });
+        }));
         let line = serde_json::to_string(&event).unwrap();
         let parsed: Inbound = serde_json::from_str(&line).unwrap();
         assert_eq!(parsed, event);
@@ -508,7 +508,7 @@ mod tests {
 
     #[test]
     fn ensure_message_id_fills_missing() {
-        let mut event = Inbound::Message(InboundMessage {
+        let mut event = Inbound::Message(Box::new(InboundMessage {
             chat: "c".to_string(),
             user: user(),
             message_id: None,
@@ -519,7 +519,7 @@ mod tests {
             files: vec![],
             sticker: None,
             ambient: false,
-        });
+        }));
         event.ensure_message_id(|| 42);
         assert_eq!(event.message_id(), Some(42));
 

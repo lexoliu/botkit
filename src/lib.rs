@@ -20,6 +20,11 @@ pub use botkit_matrix as matrix;
 #[cfg(feature = "matrix")]
 pub use botkit_matrix::{MatrixAuth, MatrixBot, MatrixClient, MatrixConfig, MatrixContextData};
 
+#[cfg(feature = "cli")]
+pub use botkit_cli as cli;
+#[cfg(feature = "cli")]
+pub use botkit_cli::{CliBot, CliContextData};
+
 pub mod prelude {
     pub use botkit_core::types::{
         ActionRow, Button, ButtonStyle, Component, Embed, SelectMenu, SelectOption,
@@ -40,4 +45,7 @@ pub mod prelude {
 
     #[cfg(feature = "matrix")]
     pub use botkit_matrix::{MatrixBot, MatrixConfig};
+
+    #[cfg(feature = "cli")]
+    pub use botkit_cli::CliBot;
 }

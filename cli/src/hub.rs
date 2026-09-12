@@ -91,7 +91,7 @@ mod tests {
     use crate::wire::{InboundMessage, OutboundMessage, WireUser};
 
     fn event() -> Inbound {
-        Inbound::Message(InboundMessage {
+        Inbound::Message(Box::new(InboundMessage {
             chat: "c".to_string(),
             user: WireUser {
                 id: "u".to_string(),
@@ -105,7 +105,7 @@ mod tests {
             files: vec![],
             sticker: None,
             ambient: false,
-        })
+        }))
     }
 
     #[test]
