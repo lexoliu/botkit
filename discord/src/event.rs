@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use botkit_core::action::ChatActionSender;
+use botkit_core::action::AnyChatActionSender;
 use botkit_core::{ContextData, OptionValue};
 
 use crate::action::DiscordActionSender;
@@ -133,11 +133,11 @@ impl ContextData for DiscordContextData {
         self
     }
 
-    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
+    fn action_sender(&self) -> Option<AnyChatActionSender> {
         if self.channel_id.is_empty() {
             return None;
         }
-        Some(Box::new(DiscordActionSender::new(
+        Some(AnyChatActionSender::new(DiscordActionSender::new(
             self.client.clone(),
             self.channel_id.clone(),
         )))
@@ -214,8 +214,8 @@ impl ContextData for MessageContextData {
         self
     }
 
-    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
-        Some(Box::new(DiscordActionSender::new(
+    fn action_sender(&self) -> Option<AnyChatActionSender> {
+        Some(AnyChatActionSender::new(DiscordActionSender::new(
             self.client.clone(),
             self.message.channel_id.clone(),
         )))

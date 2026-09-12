@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use botkit_core::BotError;
-use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
+use botkit_core::action::{ChatAction, ChatActionFutureBounds, ChatActionSender};
 use matrix_sdk::Room;
 
 /// Matrix chat action sender
@@ -20,8 +20,11 @@ impl MatrixActionSender {
 }
 
 impl ChatActionSender for MatrixActionSender {
-    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_> {
-        Box::pin(async move {
+    fn send_action(
+        &self,
+        action: ChatAction,
+    ) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
+        async move {
             // Matrix only supports typing indicators
             if action == ChatAction::Typing {
                 self.room
@@ -31,7 +34,7 @@ impl ChatActionSender for MatrixActionSender {
             }
             // Other actions are silently ignored - Matrix doesn't support them
             Ok(())
-        })
+        }
     }
 
     fn action_expiry(&self) -> Duration {
@@ -40,14 +43,14 @@ impl ChatActionSender for MatrixActionSender {
         Duration::from_secs(4)
     }
 
-    fn clear_action(&self) -> ChatActionFuture<'_> {
+    fn clear_action(&self) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
         // Unlike Discord and Telegram, a Matrix typing notice stays up until
         // it is retracted or its timeout lapses, so retract it eagerly.
-        Box::pin(async move {
+        async move {
             self.room
                 .typing_notice(false)
                 .await
                 .map_err(|e| BotError::Api(e.to_string()))
-        })
+        }
     }
 }

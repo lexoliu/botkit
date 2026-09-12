@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use botkit_core::action::ChatActionSender;
+use botkit_core::action::AnyChatActionSender;
 use botkit_core::{ContextData, OptionValue};
 use matrix_sdk::Room;
 use matrix_sdk::ruma::events::reaction::OriginalSyncReactionEvent;
@@ -184,8 +184,10 @@ impl ContextData for MatrixContextData {
         self
     }
 
-    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
-        Some(Box::new(MatrixActionSender::new(self.room.clone())))
+    fn action_sender(&self) -> Option<AnyChatActionSender> {
+        Some(AnyChatActionSender::new(MatrixActionSender::new(
+            self.room.clone(),
+        )))
     }
 }
 

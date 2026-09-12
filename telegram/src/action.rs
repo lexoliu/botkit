@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
+use botkit_core::BotError;
+use botkit_core::action::{ChatAction, ChatActionFutureBounds, ChatActionSender};
 
 use crate::client::TelegramClient;
 
@@ -11,12 +12,18 @@ use crate::client::TelegramClient;
 pub struct TelegramActionSender {
     client: TelegramClient,
     chat_id: i64,
+    /// Forum topic to scope the action to, when the chat has topics.
+    thread_id: Option<i64>,
 }
 
 impl TelegramActionSender {
     /// Create a new Telegram action sender
-    pub fn new(client: TelegramClient, chat_id: i64) -> Self {
-        Self { client, chat_id }
+    pub fn new(client: TelegramClient, chat_id: i64, thread_id: Option<i64>) -> Self {
+        Self {
+            client,
+            chat_id,
+            thread_id,
+        }
     }
 
     /// Map unified ChatAction to Telegram API action string
@@ -38,12 +45,15 @@ impl TelegramActionSender {
 }
 
 impl ChatActionSender for TelegramActionSender {
-    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_> {
-        Box::pin(async move {
+    fn send_action(
+        &self,
+        action: ChatAction,
+    ) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
+        async move {
             self.client
-                .send_chat_action(self.chat_id, Self::action_string(action))
+                .send_chat_action(self.chat_id, Self::action_string(action), self.thread_id)
                 .await
-        })
+        }
     }
 
     fn action_expiry(&self) -> Duration {

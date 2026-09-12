@@ -20,15 +20,21 @@ pub use botkit_matrix as matrix;
 #[cfg(feature = "matrix")]
 pub use botkit_matrix::{MatrixAuth, MatrixBot, MatrixClient, MatrixConfig, MatrixContextData};
 
+#[cfg(feature = "cli")]
+pub use botkit_cli as cli;
+#[cfg(feature = "cli")]
+pub use botkit_cli::{CliBot, CliContextData};
+
 pub mod prelude {
     pub use botkit_core::types::{
         ActionRow, Button, ButtonStyle, Component, Embed, SelectMenu, SelectOption,
     };
     pub use botkit_core::{
-        Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction, ChatActionGuard,
-        ChatActionSender, CommandArgs, CommandInfo, CommandName, Context, ContextData, Event,
-        FileResponse, FileSource, FromContext, Handler, IntoHandler, IntoResponse, MessageContent,
-        OptionValue, Response, Shutdown, ShutdownSignal, Typing, User,
+        AnyChatActionSender, Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction,
+        ChatActionGuard, ChatActionSender, CommandArgs, CommandInfo, CommandName, Context,
+        ContextData, Event, FileResponse, FileSource, FromContext, Handler, IntoHandler,
+        IntoResponse, MessageContent, OptionValue, Response, Shutdown, ShutdownSignal, Typing,
+        User,
     };
 
     #[cfg(feature = "discord")]
@@ -39,4 +45,7 @@ pub mod prelude {
 
     #[cfg(feature = "matrix")]
     pub use botkit_matrix::{MatrixBot, MatrixConfig};
+
+    #[cfg(feature = "cli")]
+    pub use botkit_cli::CliBot;
 }

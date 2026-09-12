@@ -139,6 +139,18 @@ impl TelegramBot {
         self
     }
 
+    /// Register a handler for events nothing else claimed
+    ///
+    /// Unregistered commands and unmatched callbacks reach the fallback
+    /// rather than being dropped. See [`BotBuilder::fallback`].
+    pub fn fallback<H, Args>(mut self, handler: H) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.builder = self.builder.fallback(handler);
+        self
+    }
+
     /// Stop publishing the registered commands to Telegram on startup
     ///
     /// On by default for [`TelegramBot::run`]; webhook mode never registers
@@ -263,8 +275,9 @@ impl Dispatcher {
         };
 
         let chat_id = data.chat_id();
+        let thread_id = data.thread_id();
         let response = handler.call(Context::new(data)).await;
-        send_response(&self.client, chat_id, response).await
+        send_response(&self.client, chat_id, thread_id, response).await
     }
 
     /// Handle one update in the background, so a webhook can reply immediately.
@@ -276,8 +289,9 @@ impl Dispatcher {
         let this = Arc::clone(self);
         spawn(async move {
             let chat_id = data.chat_id();
+            let thread_id = data.thread_id();
             let response = handler.call(Context::new(data)).await;
-            if let Err(e) = send_response(&this.client, chat_id, response).await {
+            if let Err(e) = send_response(&this.client, chat_id, thread_id, response).await {
                 error!("Telegram response error: {e}");
             }
         })
@@ -291,7 +305,7 @@ impl Dispatcher {
     async fn prepare(
         &self,
         update: Update,
-    ) -> Result<Option<(TelegramContextData, botkit_core::BoxedHandler)>, BotError> {
+    ) -> Result<Option<(TelegramContextData, botkit_core::AnyHandler)>, BotError> {
         // Telegram spins the button until the query is answered, so do it
         // before the handler runs rather than after. A failure here is cosmetic
         // - it must not cost the user their button press.
@@ -304,11 +318,16 @@ impl Dispatcher {
             warn!("Failed to answer callback query: {e}");
         }
 
-        // Edits are deliberately not re-dispatched: a handler that already ran
-        // for the original message should not run again when it is reworded.
+        // Edits and reactions route as messages: they only arrive when the
+        // bot opted into them via `allowed_updates`, and the message handler
+        // is where a bot would observe them. The handler can tell them apart
+        // through `UpdateKind`.
         if !matches!(
             update.kind,
-            UpdateKind::Message(_) | UpdateKind::CallbackQuery(_)
+            UpdateKind::Message(_)
+                | UpdateKind::EditedMessage(_)
+                | UpdateKind::CallbackQuery(_)
+                | UpdateKind::MessageReaction(_)
         ) {
             return Ok(None);
         }
@@ -375,6 +394,7 @@ impl Endpoint for TelegramWebhook {
 async fn send_response(
     client: &TelegramClient,
     chat_id: Option<i64>,
+    thread_id: Option<i64>,
     mut response: Response,
 ) -> Result<(), BotError> {
     if response.is_empty() || response.is_acknowledge() {
@@ -387,7 +407,9 @@ async fn send_response(
     };
 
     if let Some(file) = response.take_file() {
-        let _ = client.send_chat_action(chat_id, "upload_document").await;
+        let _ = client
+            .send_chat_action(chat_id, "upload_document", thread_id)
+            .await;
 
         return client
             .send_document(
@@ -395,8 +417,10 @@ async fn send_response(
                 file.file,
                 file.filename.as_deref(),
                 file.caption.as_deref(),
+                thread_id,
             )
-            .await;
+            .await
+            .map(|_| ());
     }
 
     let content = response.content().unwrap_or("");
@@ -405,8 +429,9 @@ async fn send_response(
     }
 
     client
-        .send_message(chat_id, content, build_reply_markup(&response))
-        .await
+        .send_message(chat_id, content, thread_id, build_reply_markup(&response))
+        .await?;
+    Ok(())
 }
 
 /// Flatten unified components into Telegram's inline keyboard rows.
@@ -476,7 +501,10 @@ mod tests {
     fn routed_event(update: &Update) -> Option<&'static str> {
         if !matches!(
             update.kind,
-            UpdateKind::Message(_) | UpdateKind::CallbackQuery(_)
+            UpdateKind::Message(_)
+                | UpdateKind::EditedMessage(_)
+                | UpdateKind::CallbackQuery(_)
+                | UpdateKind::MessageReaction(_)
         ) {
             return None;
         }
@@ -530,6 +558,34 @@ mod tests {
     }
 
     #[test]
+    fn reaction_updates_route_to_the_message_handler() {
+        let reaction = update(serde_json::json!({
+            "update_id": 7,
+            "message_reaction": {
+                "message_id": 9,
+                "chat": { "id": 42, "type": "private" },
+                "user": { "id": 1, "is_bot": false, "first_name": "Ada" },
+                "date": 0,
+                "old_reaction": [],
+                "new_reaction": [{ "type": "emoji", "emoji": "👍" }]
+            }
+        }));
+        assert_eq!(routed_event(&reaction), Some("message"));
+
+        let data = TelegramContextData::new(reaction, TelegramClient::new("t"));
+        assert_eq!(data.chat_id(), Some(42));
+        assert_eq!(data.user_name(), "Ada");
+        let UpdateKind::MessageReaction(r) = &data.update.kind else {
+            panic!("expected a reaction update");
+        };
+        assert_eq!(r.message_id, 9);
+        assert!(matches!(
+            r.new_reaction.as_slice(),
+            [crate::types::ReactionType::Emoji { .. }]
+        ));
+    }
+
+    #[test]
     fn a_callback_without_data_does_not_fall_through_to_the_message_handler() {
         let update = update(serde_json::json!({
             "update_id": 4,
@@ -542,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn edits_and_unmodelled_kinds_are_not_dispatched() {
+    fn edits_route_to_the_message_handler_but_unmodelled_kinds_do_not() {
         let edit = update(serde_json::json!({
             "update_id": 5,
             "edited_message": {
@@ -551,7 +607,7 @@ mod tests {
                 "text": "reworded"
             }
         }));
-        assert_eq!(routed_event(&edit), None);
+        assert_eq!(routed_event(&edit), Some("message"));
 
         let poll = update(serde_json::json!({ "update_id": 6, "poll": { "id": "p" } }));
         assert_eq!(routed_event(&poll), None);

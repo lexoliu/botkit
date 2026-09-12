@@ -159,6 +159,9 @@ Uses custom HTTP crates (not tokio ecosystem):
 
 - Uses Rust 2024 edition
 - Error handling via `thiserror`
+- Public trait methods return `impl Future`; never expose `Pin<Box<dyn Future>>` or boxed-future aliases in public signatures.
+- When a trait must be stored dynamically, define a private object-safe twin `[Trait]Impl` plus a public wrapper `Any[Trait]` (e.g. `AnyChatActionSender`, `AnyHandler`, `AnyContainerExec`; `Tools` plays that role for `Tool`). Boxing lives inside the wrapper — callers only see the concrete API.
+- `anyhow` is banned: every error is a `thiserror` enum so callers can match on failure kinds. `Box<dyn Error>` is acceptable only at a binary's outermost boundary.
 - Serialization via `serde`/`serde_json`
 - Async patterns with `futures-lite`
 - CI gates on `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and the WASM build; run all three before pushing
