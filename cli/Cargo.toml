@@ -1,0 +1,24 @@
+[package]
+name = "botkit-cli"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+description = "CLI-driven IM platform for botkit: a JSONL wire protocol over stdio or a unix socket, built so agents can drive and inspect bots end to end"
+
+[dependencies]
+botkit-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures-lite.workspace = true
+executor-core.workspace = true
+async-io = "2.6"
+async-channel = "2.5"
+mime_guess.workspace = true
+tracing = "0.1.44"
+base64 = "0.22"
+
+[dev-dependencies]
+async-executor = "1.14"
+executor-core = { workspace = true, features = ["async-executor"] }

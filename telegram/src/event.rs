@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use botkit_core::action::ChatActionSender;
+use botkit_core::action::AnyChatActionSender;
 use botkit_core::{ContextData, OptionValue};
 
 use crate::action::TelegramActionSender;
@@ -24,19 +24,35 @@ pub struct TelegramContextData {
 
 impl TelegramContextData {
     pub fn new(update: Update, client: TelegramClient) -> Self {
-        let (chat_id, user) = match &update.kind {
+        let (chat_id, user, actor_chat) = match &update.kind {
             UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => {
-                (Some(m.chat.id), m.from.as_ref())
+                (Some(m.chat.id), m.from.as_ref(), None)
             }
             // An inline-message callback has no chat to reply in.
             UpdateKind::CallbackQuery(cq) => {
-                (cq.message.as_ref().map(|m| m.chat.id), Some(&cq.from))
+                (cq.message.as_ref().map(|m| m.chat.id), Some(&cq.from), None)
             }
-            UpdateKind::Unknown => (None, None),
+            UpdateKind::MessageReaction(r) => {
+                (Some(r.chat.id), r.user.as_ref(), r.actor_chat.as_ref())
+            }
+            UpdateKind::Unknown => (None, None, None),
         };
 
+        // Anonymous reactions come from a channel acting as itself; surface
+        // the acting chat as the sender instead of an empty identity.
         let (user_id, user_name) = user
             .map(|u| (u.id.to_string(), display_name(u)))
+            .or_else(|| {
+                actor_chat.map(|c| {
+                    (
+                        c.id.to_string(),
+                        c.title
+                            .clone()
+                            .or_else(|| c.username.clone())
+                            .unwrap_or_default(),
+                    )
+                })
+            })
             .unwrap_or_default();
 
         let (command_name, command_args) = extract_command(&update);
@@ -61,6 +77,15 @@ impl TelegramContextData {
     /// The numeric chat ID, absent for updates with no chat to reply in
     pub fn chat_id(&self) -> Option<i64> {
         self.chat_id
+    }
+
+    /// The forum topic this update belongs to, when the chat has topics.
+    pub fn thread_id(&self) -> Option<i64> {
+        match &self.update.kind {
+            UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => m.message_thread_id,
+            UpdateKind::CallbackQuery(cq) => cq.message.as_ref()?.message_thread_id,
+            UpdateKind::MessageReaction(_) | UpdateKind::Unknown => None,
+        }
     }
 }
 
@@ -176,9 +201,15 @@ impl ContextData for TelegramContextData {
 
     fn message_content(&self) -> Option<&str> {
         match &self.update.kind {
-            UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => m.text.as_deref(),
-            UpdateKind::CallbackQuery(cq) => cq.message.as_ref()?.text.as_deref(),
-            UpdateKind::Unknown => None,
+            UpdateKind::Message(m) | UpdateKind::EditedMessage(m) => {
+                m.text.as_deref().or(m.caption.as_deref())
+            }
+            UpdateKind::CallbackQuery(cq) => cq.message.as_ref()?.text.as_deref().or(cq
+                .message
+                .as_ref()?
+                .caption
+                .as_deref()),
+            UpdateKind::MessageReaction(_) | UpdateKind::Unknown => None,
         }
     }
 
@@ -186,10 +217,11 @@ impl ContextData for TelegramContextData {
         self
     }
 
-    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
-        Some(Box::new(TelegramActionSender::new(
+    fn action_sender(&self) -> Option<AnyChatActionSender> {
+        Some(AnyChatActionSender::new(TelegramActionSender::new(
             self.client.clone(),
             self.chat_id?,
+            self.thread_id(),
         )))
     }
 }
@@ -340,6 +372,29 @@ mod tests {
         assert_eq!(data.command_name(), Some("greet"));
         assert_eq!(data.command_args(), Some("you"));
         assert!(data.action_sender().is_some());
+    }
+
+    #[test]
+    fn media_caption_serves_as_message_content() {
+        // A photo/document message has no `text`; its caption is the text.
+        let update = update(serde_json::json!({
+            "update_id": 5,
+            "message": {
+                "message_id": 9,
+                "date": 0,
+                "chat": { "id": 42, "type": "private" },
+                "from": { "id": 7, "is_bot": false, "first_name": "Ada" },
+                "caption": "look at this",
+                "photo": [
+                    { "file_id": "p1", "file_unique_id": "u1", "width": 90, "height": 90 },
+                    { "file_id": "p2", "file_unique_id": "u2", "width": 800, "height": 600 }
+                ]
+            }
+        }));
+
+        let data = TelegramContextData::new(update, TelegramClient::new("token"));
+        assert_eq!(data.message_content(), Some("look at this"));
+        assert_eq!(data.chat_id(), Some(42));
     }
 
     #[test]

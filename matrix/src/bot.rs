@@ -101,6 +101,18 @@ impl MatrixBot {
         self
     }
 
+    /// Register a handler for events nothing else claimed
+    ///
+    /// Unregistered commands and unmatched reactions reach the fallback
+    /// rather than being dropped. See [`BotBuilder::fallback`].
+    pub fn fallback<H, Args>(mut self, handler: H) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.builder = self.builder.fallback(handler);
+        self
+    }
+
     /// Build and connect the Matrix client
     async fn build_client(&self) -> Result<Client, BotError> {
         #[cfg(not(target_arch = "wasm32"))]

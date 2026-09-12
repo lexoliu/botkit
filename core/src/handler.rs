@@ -9,9 +9,19 @@ use crate::responder::IntoResponse;
 use crate::response::Response;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
+type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
 #[cfg(target_arch = "wasm32")]
-pub type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + 'a>>;
+type HandlerCallFuture<'a> = Pin<Box<dyn Future<Output = Response> + 'a>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait HandlerCallFutureBounds: Future + Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Future + Send + ?Sized> HandlerCallFutureBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait HandlerCallFutureBounds: Future {}
+#[cfg(target_arch = "wasm32")]
+impl<T: Future + ?Sized> HandlerCallFutureBounds for T {}
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait HandlerBounds: Send + Sync {}
@@ -73,16 +83,47 @@ impl<T: Future + ?Sized> HandlerFutureBounds for T {}
 /// ```
 pub trait Handler: HandlerBounds + 'static {
     /// Handle the event and produce a response
-    fn call(&self, ctx: Context) -> HandlerCallFuture<'_>;
+    fn call(&self, ctx: Context) -> impl HandlerCallFutureBounds<Output = Response> + '_;
 }
 
-/// Boxed handler for storage
-pub type BoxedHandler = Arc<dyn Handler>;
+/// Object-safe twin of [`Handler`] backing [`AnyHandler`].
+trait HandlerImpl: HandlerBounds {
+    fn call_boxed<'a>(&'a self, ctx: Context) -> HandlerCallFuture<'a>;
+}
+
+impl<T: Handler> HandlerImpl for T {
+    fn call_boxed<'a>(&'a self, ctx: Context) -> HandlerCallFuture<'a> {
+        Box::pin(Handler::call(self, ctx))
+    }
+}
+
+/// Type-erased [`Handler`] handle
+///
+/// What the router stores and dispatches on. Cloning shares the underlying
+/// handler.
+#[derive(Clone)]
+pub struct AnyHandler {
+    inner: Arc<dyn HandlerImpl>,
+}
+
+impl AnyHandler {
+    /// Erase `handler` into a shareable handle.
+    pub fn new(handler: impl Handler) -> Self {
+        Self {
+            inner: Arc::new(handler),
+        }
+    }
+
+    /// Handle the event and produce a response
+    pub fn call(&self, ctx: Context) -> impl HandlerCallFutureBounds<Output = Response> + '_ {
+        self.inner.call_boxed(ctx)
+    }
+}
 
 /// Trait to convert functions into handlers
 pub trait IntoHandler<Args> {
-    /// Convert this function into a boxed handler
-    fn into_handler(self) -> BoxedHandler;
+    /// Convert this function into a type-erased handler
+    fn into_handler(self) -> AnyHandler;
 }
 
 /// Adapter that pairs a handler function with the extractors it asks for.
@@ -108,8 +149,8 @@ macro_rules! impl_into_handler {
             R: IntoResponse + 'static,
             $($ty: FromContext + 'static,)*
         {
-            fn into_handler(self) -> BoxedHandler {
-                Arc::new(FnHandler::new(self))
+            fn into_handler(self) -> AnyHandler {
+                AnyHandler::new(FnHandler::new(self))
             }
         }
 
@@ -120,7 +161,7 @@ macro_rules! impl_into_handler {
             R: IntoResponse + 'static,
             $($ty: FromContext + 'static,)*
         {
-            fn call(&self, ctx: Context) -> HandlerCallFuture<'_> {
+            fn call(&self, ctx: Context) -> impl HandlerCallFutureBounds<Output = Response> + '_ {
                 Box::pin(async move {
                     // `ctx` is unused at arity zero.
                     let _ = &ctx;

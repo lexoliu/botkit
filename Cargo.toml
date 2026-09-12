@@ -12,7 +12,7 @@ categories = ["asynchronous", "api-bindings"]
 
 [workspace]
 resolver = "2"
-members = ["core", "discord", "telegram", "matrix", "examples"]
+members = ["core", "cli", "discord", "telegram", "matrix", "examples"]
 # See examples/webhook/Cargo.toml: skyzen and matrix-sdk both pull a package
 # that links `sqlite3`, and cargo rejects that across a whole workspace.
 exclude = ["examples/webhook"]
@@ -29,6 +29,7 @@ botkit-core = { version = "0.1.0", path = "core" }
 botkit-discord = { version = "0.1.0", path = "discord" }
 botkit-telegram = { version = "0.1.0", path = "telegram" }
 botkit-matrix = { version = "0.1.0", path = "matrix" }
+botkit-cli = { version = "0.1.0", path = "cli" }
 
 # HTTP foundation
 http-kit = "0.4.2"
@@ -37,6 +38,7 @@ zenwave = "0.5.0"
 # Serialization
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+mime_guess = "2.0.5"
 
 # Error handling
 thiserror = "2.0.20"
@@ -50,10 +52,12 @@ default = []
 discord = ["dep:botkit-discord"]
 telegram = ["dep:botkit-telegram"]
 matrix = ["dep:botkit-matrix"]
-full = ["discord", "telegram", "matrix"]
+cli = ["dep:botkit-cli"]
+full = ["discord", "telegram", "matrix", "cli"]
 
 [dependencies]
 botkit-core.workspace = true
 botkit-discord = { workspace = true, optional = true }
 botkit-telegram = { workspace = true, optional = true }
 botkit-matrix = { workspace = true, optional = true }
+botkit-cli = { workspace = true, optional = true }

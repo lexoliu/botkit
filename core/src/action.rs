@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -10,9 +11,9 @@ use gloo_timers::future::sleep;
 use crate::BotError;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + 'a>>;
+type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + Send + 'a>>;
 #[cfg(target_arch = "wasm32")]
-pub type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + 'a>>;
+type ChatActionFuture<'a> = Pin<Box<dyn Future<Output = Result<(), BotError>> + 'a>>;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait ChatActionSenderBounds: Send + Sync {}
@@ -23,6 +24,16 @@ impl<T: Send + Sync + ?Sized> ChatActionSenderBounds for T {}
 pub trait ChatActionSenderBounds {}
 #[cfg(target_arch = "wasm32")]
 impl<T: ?Sized> ChatActionSenderBounds for T {}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub trait ChatActionFutureBounds: Future + Send {}
+#[cfg(not(target_arch = "wasm32"))]
+impl<T: Future + Send + ?Sized> ChatActionFutureBounds for T {}
+
+#[cfg(target_arch = "wasm32")]
+pub trait ChatActionFutureBounds: Future {}
+#[cfg(target_arch = "wasm32")]
+impl<T: Future + ?Sized> ChatActionFutureBounds for T {}
 
 /// Chat action types for platform indicators
 ///
@@ -56,10 +67,15 @@ pub enum ChatAction {
 
 /// Trait for sending chat actions to a channel
 ///
-/// Platform implementations define how to send actions and their expiration times.
+/// Platform implementations define how to send actions and their expiration
+/// times. Use [`AnyChatActionSender`] where a sender must be stored behind
+/// type erasure.
 pub trait ChatActionSender: ChatActionSenderBounds + 'static {
     /// Send a chat action to the specified channel
-    fn send_action(&self, action: ChatAction) -> ChatActionFuture<'_>;
+    fn send_action(
+        &self,
+        action: ChatAction,
+    ) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_;
 
     /// Duration after which the action indicator expires
     ///
@@ -71,8 +87,66 @@ pub trait ChatActionSender: ChatActionSenderBounds + 'static {
     /// Called when the guard drops. Platforms that expire indicators on a timer
     /// (Discord, Telegram) need nothing here; Matrix uses it to retract the
     /// typing notice immediately.
-    fn clear_action(&self) -> ChatActionFuture<'_> {
-        Box::pin(async { Ok(()) })
+    fn clear_action(&self) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
+        async { Ok(()) }
+    }
+}
+
+/// Object-safe twin of [`ChatActionSender`] backing [`AnyChatActionSender`].
+trait ChatActionSenderImpl: ChatActionSenderBounds {
+    fn send_action_boxed<'a>(&'a self, action: ChatAction) -> ChatActionFuture<'a>;
+    fn action_expiry(&self) -> Duration;
+    fn clear_action_boxed<'a>(&'a self) -> ChatActionFuture<'a>;
+}
+
+impl<T: ChatActionSender> ChatActionSenderImpl for T {
+    fn send_action_boxed<'a>(&'a self, action: ChatAction) -> ChatActionFuture<'a> {
+        Box::pin(ChatActionSender::send_action(self, action))
+    }
+
+    fn action_expiry(&self) -> Duration {
+        ChatActionSender::action_expiry(self)
+    }
+
+    fn clear_action_boxed<'a>(&'a self) -> ChatActionFuture<'a> {
+        Box::pin(ChatActionSender::clear_action(self))
+    }
+}
+
+/// Type-erased [`ChatActionSender`] handle
+///
+/// Cloning shares the underlying sender. This is what the framework stores
+/// and hands to [`ChatActionGuard`]; platform `ContextData` implementations
+/// produce one via [`AnyChatActionSender::new`].
+#[derive(Clone)]
+pub struct AnyChatActionSender {
+    inner: Arc<dyn ChatActionSenderImpl>,
+}
+
+impl AnyChatActionSender {
+    /// Erase `sender` into a shareable handle.
+    pub fn new(sender: impl ChatActionSender) -> Self {
+        Self {
+            inner: Arc::new(sender),
+        }
+    }
+
+    /// Send a chat action to the channel this sender is bound to
+    pub fn send_action(
+        &self,
+        action: ChatAction,
+    ) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
+        self.inner.send_action_boxed(action)
+    }
+
+    /// Duration after which the action indicator expires
+    pub fn action_expiry(&self) -> Duration {
+        self.inner.action_expiry()
+    }
+
+    /// Clear the indicator early
+    pub fn clear_action(&self) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
+        self.inner.clear_action_boxed()
     }
 }
 
@@ -100,7 +174,7 @@ impl ChatActionGuard {
     ///
     /// The action is sent immediately and renewed automatically until
     /// the guard is dropped.
-    pub fn start(sender: Box<dyn ChatActionSender>, action: ChatAction) -> Self {
+    pub fn start(sender: AnyChatActionSender, action: ChatAction) -> Self {
         let (stop, stopped) = async_channel::bounded::<()>(1);
 
         // Renew ahead of expiry so the indicator never visibly flickers. A

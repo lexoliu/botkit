@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::action::{ChatAction, ChatActionGuard, ChatActionSender};
+use crate::action::{AnyChatActionSender, ChatAction, ChatActionGuard};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub trait ContextDataBounds: Send + Sync {}
@@ -167,7 +167,7 @@ pub trait ContextData: ContextDataBounds + 'static {
     ///
     /// Returns `None` if the platform doesn't support chat actions
     /// or if the necessary client is not available.
-    fn action_sender(&self) -> Option<Box<dyn ChatActionSender>> {
+    fn action_sender(&self) -> Option<AnyChatActionSender> {
         None
     }
 }
