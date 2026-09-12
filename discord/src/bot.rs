@@ -119,6 +119,18 @@ impl DiscordBot {
         self
     }
 
+    /// Register a handler for events nothing else claimed
+    ///
+    /// Unmatched component interactions and unrouted messages reach the
+    /// fallback rather than being dropped. See [`BotBuilder::fallback`].
+    pub fn fallback<H, Args>(mut self, handler: H) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.builder = self.builder.fallback(handler);
+        self
+    }
+
     /// Stop publishing the registered commands to Discord on startup
     ///
     /// On by default. Turn it off when commands are managed elsewhere, or to

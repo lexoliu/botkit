@@ -25,10 +25,11 @@ pub mod prelude {
         ActionRow, Button, ButtonStyle, Component, Embed, SelectMenu, SelectOption,
     };
     pub use botkit_core::{
-        Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction, ChatActionGuard,
-        ChatActionSender, CommandArgs, CommandInfo, CommandName, Context, ContextData, Event,
-        FileResponse, FileSource, FromContext, Handler, IntoHandler, IntoResponse, MessageContent,
-        OptionValue, Response, Shutdown, ShutdownSignal, Typing, User,
+        AnyChatActionSender, Bot, BotBuilder, BotError, ButtonId, Channel, ChatAction,
+        ChatActionGuard, ChatActionSender, CommandArgs, CommandInfo, CommandName, Context,
+        ContextData, Event, FileResponse, FileSource, FromContext, Handler, IntoHandler,
+        IntoResponse, MessageContent, OptionValue, Response, Shutdown, ShutdownSignal, Typing,
+        User,
     };
 
     #[cfg(feature = "discord")]

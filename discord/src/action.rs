@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use botkit_core::action::{ChatAction, ChatActionFuture, ChatActionSender};
+use botkit_core::BotError;
+use botkit_core::action::{ChatAction, ChatActionFutureBounds, ChatActionSender};
 
 use crate::client::DiscordClient;
 
@@ -21,9 +22,12 @@ impl DiscordActionSender {
 }
 
 impl ChatActionSender for DiscordActionSender {
-    fn send_action(&self, _action: ChatAction) -> ChatActionFuture<'_> {
+    fn send_action(
+        &self,
+        _action: ChatAction,
+    ) -> impl ChatActionFutureBounds<Output = Result<(), BotError>> + '_ {
         // Discord only supports typing, ignore the action type
-        Box::pin(async move { self.client.trigger_typing(&self.channel_id).await })
+        async move { self.client.trigger_typing(&self.channel_id).await }
     }
 
     fn action_expiry(&self) -> Duration {

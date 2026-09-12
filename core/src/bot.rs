@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::future::Future;
 
 use crate::BotError;
-use crate::handler::{BoxedHandler, IntoHandler};
+use crate::handler::{AnyHandler, IntoHandler};
 use crate::shutdown::Shutdown;
 
 // Handlers and futures are only thread-safe off wasm32, where there are no
@@ -92,15 +92,17 @@ pub struct BotBuilder {
     /// Command name -> handler. Also keeps registration order for `commands()`.
     commands: HashMap<String, CommandEntry>,
     /// Button ids without a wildcard, matched by equality.
-    buttons: HashMap<String, BoxedHandler>,
+    buttons: HashMap<String, AnyHandler>,
     /// Button patterns ending in `*`, matched by prefix in registration order.
-    button_prefixes: Vec<(String, BoxedHandler)>,
+    button_prefixes: Vec<(String, AnyHandler)>,
     /// Catch-all message handler.
-    message: Option<BoxedHandler>,
+    message: Option<AnyHandler>,
+    /// Handler for events no registered route claimed.
+    fallback: Option<AnyHandler>,
 }
 
 struct CommandEntry {
-    handler: BoxedHandler,
+    handler: AnyHandler,
     description: Option<String>,
     /// Registration index, so `commands()` can yield a stable order.
     order: usize,
@@ -159,7 +161,7 @@ impl BotBuilder {
         mut self,
         name: String,
         description: Option<String>,
-        handler: BoxedHandler,
+        handler: AnyHandler,
     ) -> Self {
         let order = self.commands.len();
         self.commands.entry(name).or_insert(CommandEntry {
@@ -201,6 +203,22 @@ impl BotBuilder {
         self
     }
 
+    /// Register a handler for events nothing else claimed
+    ///
+    /// Consulted after command, button, and message routing: an unregistered
+    /// command or an unmatched button reaches the fallback rather than being
+    /// dropped. Plain messages still prefer the [`message`](Self::message)
+    /// handler when one is registered.
+    ///
+    /// Only one fallback is used; later registrations are ignored.
+    pub fn fallback<H, Args>(mut self, handler: H) -> Self
+    where
+        H: IntoHandler<Args>,
+    {
+        self.fallback.get_or_insert_with(|| handler.into_handler());
+        self
+    }
+
     /// Get all registered commands with their descriptions, in registration order
     pub fn commands(&self) -> impl Iterator<Item = CommandInfo<'_>> {
         let mut entries: Vec<_> = self.commands.iter().collect();
@@ -219,9 +237,10 @@ impl BotBuilder {
     /// Find the handler that should serve an event
     ///
     /// Commands and exact button ids resolve with a single hash lookup; only
-    /// wildcard button patterns fall back to a scan.
-    pub fn route(&self, event: Event<'_>) -> Option<&BoxedHandler> {
-        match event {
+    /// wildcard button patterns fall back to a scan. An event no route claims
+    /// resolves to the [`fallback`](Self::fallback) handler, if any.
+    pub fn route(&self, event: Event<'_>) -> Option<&AnyHandler> {
+        let routed = match event {
             Event::Command(name) => self.commands.get(name).map(|entry| &entry.handler),
             Event::Button(id) => self.buttons.get(id).or_else(|| {
                 self.button_prefixes
@@ -230,7 +249,8 @@ impl BotBuilder {
                     .map(|(_, handler)| handler)
             }),
             Event::Message => self.message.as_ref(),
-        }
+        };
+        routed.or(self.fallback.as_ref())
     }
 }
 
@@ -280,6 +300,21 @@ mod tests {
     fn message_handler_is_a_catch_all() {
         assert!(builder().route(Event::Message).is_some());
         assert!(BotBuilder::new().route(Event::Message).is_none());
+    }
+
+    #[test]
+    fn fallback_catches_unrouted_events_only() {
+        // Without a fallback, unclaimed commands and buttons are dropped.
+        assert!(builder().route(Event::Command("unknown")).is_none());
+        assert!(builder().route(Event::Button("unmatched")).is_none());
+
+        let routed = builder().fallback(reply);
+        // Claimed routes still win.
+        assert!(routed.route(Event::Command("ping")).is_some());
+        assert!(routed.route(Event::Button("exact")).is_some());
+        // Unclaimed commands and buttons fall through to the fallback.
+        assert!(routed.route(Event::Command("unknown")).is_some());
+        assert!(routed.route(Event::Button("unmatched")).is_some());
     }
 
     #[test]
