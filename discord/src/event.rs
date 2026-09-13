@@ -149,6 +149,11 @@ pub struct MessageContextData {
     message: Message,
     client: DiscordClient,
     user_name: String,
+    /// Whether this message is an edit (`MESSAGE_UPDATE`) rather than a new
+    /// message (`MESSAGE_CREATE`). On edits `message` holds the post-edit
+    /// state and may be partial — fields Discord didn't resend are at their
+    /// defaults.
+    pub edited: bool,
 }
 
 impl MessageContextData {
@@ -163,6 +168,16 @@ impl MessageContextData {
             message,
             client,
             user_name,
+            edited: false,
+        }
+    }
+
+    /// The context for an edited message — same shape as `new`, with the
+    /// `edited` flag set so handlers can tell a correction from a new post.
+    pub fn new_edited(message: Message, client: DiscordClient) -> Self {
+        Self {
+            edited: true,
+            ..Self::new(message, client)
         }
     }
 

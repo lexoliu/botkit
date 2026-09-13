@@ -9,4 +9,4 @@ pub use bot::DiscordBot;
 pub use client::DiscordClient;
 pub use event::{DiscordContextData, MessageContextData};
 pub use gateway::{Gateway, GatewayEvent, GatewayIntents, Session};
-pub use types::{Interaction, InteractionData, InteractionType, Member, Message};
+pub use types::{Attachment, Interaction, InteractionData, InteractionType, Member, Message, User};

@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 /// Discord user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// `Default` exists for partial payloads — a `MESSAGE_UPDATE` dispatch may
+/// omit the author entirely, leaving an empty user rather than failing to
+/// parse the message.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
     pub username: String,

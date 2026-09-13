@@ -227,6 +227,9 @@ impl GatewayConnection {
                 // bot's own message handlers.
                 .filter(|message| !message.author.bot.unwrap_or(false))
                 .map(|message| GatewayEvent::MessageCreate(Box::new(message)))),
+            "MESSAGE_UPDATE" => Ok(parse::<Message>(name, data)
+                .filter(|message| !message.author.bot.unwrap_or(false))
+                .map(|message| GatewayEvent::MessageUpdate(Box::new(message)))),
             _ => Ok(None),
         }
     }
@@ -352,6 +355,8 @@ pub enum GatewayEvent {
     InteractionCreate(Box<Interaction>),
     /// A message from a non-bot author
     MessageCreate(Box<Message>),
+    /// A message was edited — the payload carries the post-edit state
+    MessageUpdate(Box<Message>),
     /// Discord asked us to reconnect, or the connection went silent
     Reconnect,
     /// The session is gone; `resumable` says whether a resume may still work
