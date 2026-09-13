@@ -26,8 +26,6 @@ jobs:
           ref: main
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
       - uses: taiki-e/install-action@cargo-semver-checks
       # The water-rs fork of release-plz (from release-plz-v0.3.161, the
       # version release-plz-action@v0.5 pins) treats a package it cannot
