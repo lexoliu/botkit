@@ -1,6 +1,6 @@
 [package]
 name = "botkit"
-version = "0.1.0"
+version = "0.1.1"
 edition.workspace = true
 license.workspace = true
 readme.workspace = true
@@ -25,11 +25,11 @@ repository = "https://github.com/lexoliu/botkit"
 
 [workspace.dependencies]
 # Internal crates
-botkit-core = { version = "0.1.0", path = "core" }
-botkit-discord = { version = "0.1.0", path = "discord" }
-botkit-telegram = { version = "0.1.0", path = "telegram" }
-botkit-matrix = { version = "0.1.0", path = "matrix" }
-botkit-cli = { version = "0.1.0", path = "cli" }
+botkit-core = { version = "0.2.0", path = "core" }
+botkit-discord = { version = "0.2.0", path = "discord" }
+botkit-telegram = { version = "0.2.0", path = "telegram" }
+botkit-matrix = { version = "0.2.0", path = "matrix" }
+botkit-cli = { version = "0.1.1", path = "cli" }
 
 # HTTP foundation
 http-kit = "0.4.2"
