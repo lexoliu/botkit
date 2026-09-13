@@ -289,7 +289,16 @@ async fn pump_events(
             Ok(GatewayEvent::MessageCreate(message)) => {
                 let bot = Arc::clone(bot);
                 spawn(async move {
-                    if let Err(e) = handle_message(&bot, *message).await {
+                    if let Err(e) = handle_message(&bot, *message, false).await {
+                        error!("Message error: {e}");
+                    }
+                })
+                .detach();
+            }
+            Ok(GatewayEvent::MessageUpdate(message)) => {
+                let bot = Arc::clone(bot);
+                spawn(async move {
+                    if let Err(e) = handle_message(&bot, *message, true).await {
                         error!("Message error: {e}");
                     }
                 })
@@ -365,13 +374,17 @@ async fn handle_interaction(bot: &BotState, interaction: Interaction) -> Result<
     .await
 }
 
-async fn handle_message(bot: &BotState, message: Message) -> Result<(), BotError> {
+async fn handle_message(bot: &BotState, message: Message, edited: bool) -> Result<(), BotError> {
     let Some(handler) = bot.builder.route(Event::Message).cloned() else {
         return Ok(());
     };
 
     let channel_id = message.channel_id.clone();
-    let data = MessageContextData::new(message, bot.client.clone());
+    let data = if edited {
+        MessageContextData::new_edited(message, bot.client.clone())
+    } else {
+        MessageContextData::new(message, bot.client.clone())
+    };
     let response = handler.call(Context::new(data)).await;
 
     send_channel_response(&bot.client, &channel_id, response).await
@@ -487,11 +500,15 @@ async fn send_channel_response(
                 file.filename.as_deref().unwrap_or("file"),
                 file.caption.as_deref(),
             )
-            .await;
+            .await
+            .map(|_| ());
     }
 
     let payload = message_payload(&response)?;
-    client.send_message_payload(channel_id, &payload).await
+    client
+        .send_message_payload(channel_id, &payload)
+        .await
+        .map(|_| ())
 }
 
 /// Render the shared message fields Discord accepts on both endpoints.
