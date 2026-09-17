@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use botkit_core::{BotError, FileSource};
 use serde::de::DeserializeOwned;
 use zenwave::{Client, ResponseExt};
@@ -162,7 +164,36 @@ impl TelegramClient {
     where
         T: DeserializeOwned,
     {
-        let mut client = zenwave::client();
+        self.post_json_via(zenwave::client(), method, body).await
+    }
+
+    /// `post_json` with a hard request deadline. `getUpdates` needs one: a
+    /// long-poll connection that silently dies mid-request (laptop sleep,
+    /// a dropped NAT mapping, a dead proxy hop) must surface as an error
+    /// so the poll loop can retry — otherwise the future waits on a dead
+    /// socket forever and no update ever arrives.
+    async fn post_json_timed<T>(
+        &self,
+        method: &str,
+        body: &serde_json::Value,
+        deadline: Duration,
+    ) -> Result<T, BotError>
+    where
+        T: DeserializeOwned,
+    {
+        self.post_json_via(zenwave::client().timeout(deadline), method, body)
+            .await
+    }
+
+    async fn post_json_via<T>(
+        &self,
+        mut client: impl Client,
+        method: &str,
+        body: &serde_json::Value,
+    ) -> Result<T, BotError>
+    where
+        T: DeserializeOwned,
+    {
         let response = client
             .post(self.api_url(method))
             .map_err(|e| self.api_error(e))?
@@ -414,7 +445,10 @@ impl TelegramClient {
             "message_reaction"
         ]);
 
-        self.post_json("getUpdates", &body).await
+        // Bound the request past the server's long-poll hold: a dead
+        // connection must become an error, not an infinite wait.
+        let deadline = Duration::from_secs(u64::from(timeout.unwrap_or(0)) + 10);
+        self.post_json_timed("getUpdates", &body, deadline).await
     }
 
     /// Send a chat action (typing, uploading, etc.). `thread_id` targets a
