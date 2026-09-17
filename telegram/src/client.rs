@@ -96,6 +96,35 @@ impl NewSticker {
     }
 }
 
+/// A chat the Bot API can address: a numeric id or a public `@username`
+/// — the API accepts either form wherever a `chat_id` goes.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(untagged)]
+pub enum ChatRef {
+    /// Numeric chat id (`-100…` for channels and supergroups).
+    Id(i64),
+    /// Public username, with the `@` prefix the API expects.
+    Username(String),
+}
+
+impl From<i64> for ChatRef {
+    fn from(id: i64) -> Self {
+        Self::Id(id)
+    }
+}
+
+impl From<String> for ChatRef {
+    fn from(username: String) -> Self {
+        Self::Username(username)
+    }
+}
+
+impl From<&str> for ChatRef {
+    fn from(username: &str) -> Self {
+        Self::Username(username.to_string())
+    }
+}
+
 /// Telegram REST API client
 #[derive(Clone)]
 pub struct TelegramClient {
@@ -492,6 +521,58 @@ impl TelegramClient {
     /// `_by_<bot>` suffix for sets the bot creates.
     pub async fn get_me(&self) -> Result<crate::types::User, BotError> {
         self.post_json("getMe", &serde_json::json!({})).await
+    }
+
+    /// `getChat` — a chat's metadata. Works for any public chat by
+    /// `@username` and for any chat the bot can see by id; a chat the bot
+    /// has no access to answers "chat not found".
+    pub async fn get_chat(&self, chat: ChatRef) -> Result<crate::types::Chat, BotError> {
+        self.post_json("getChat", &serde_json::json!({"chat_id": chat}))
+            .await
+    }
+
+    /// `getChatMemberCount` — the chat's member count, under the same
+    /// reachability rules as [`Self::get_chat`].
+    pub async fn get_chat_member_count(&self, chat: ChatRef) -> Result<i64, BotError> {
+        self.post_json("getChatMemberCount", &serde_json::json!({"chat_id": chat}))
+            .await
+    }
+
+    /// `getChatMember` — a user's status in a chat. Only chats the bot
+    /// belongs to answer (channels additionally require the bot to be an
+    /// administrator), so an error here is itself the "not a member"
+    /// signal.
+    pub async fn get_chat_member(
+        &self,
+        chat: ChatRef,
+        user_id: i64,
+    ) -> Result<crate::types::ChatMember, BotError> {
+        self.post_json(
+            "getChatMember",
+            &serde_json::json!({"chat_id": chat, "user_id": user_id}),
+        )
+        .await
+    }
+
+    /// `forwardMessage` — copies `message_id` from `from` into `to`,
+    /// attributing it to the original sender. The bot must be able to see
+    /// the source message (membership) and write to the destination.
+    /// Returns the new message.
+    pub async fn forward_message(
+        &self,
+        to: i64,
+        from: ChatRef,
+        message_id: i64,
+    ) -> Result<crate::types::Message, BotError> {
+        self.post_json(
+            "forwardMessage",
+            &serde_json::json!({
+                "chat_id": to,
+                "from_chat_id": from,
+                "message_id": message_id,
+            }),
+        )
+        .await
     }
 
     /// `getFile` — resolve a `file_id` to its server-side `file_path`.

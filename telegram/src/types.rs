@@ -187,7 +187,8 @@ pub struct User {
     pub can_read_all_group_messages: Option<bool>,
 }
 
-/// Telegram Chat object
+/// Telegram Chat object. `getChat` returns `ChatFullInfo`, a superset —
+/// the extra fields deserialize here and stay `None` on `message.chat`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Chat {
     pub id: i64,
@@ -197,6 +198,33 @@ pub struct Chat {
     pub username: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
+    /// `ChatFullInfo`: the chat's public description.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `ChatFullInfo`: a private chat's bio line.
+    #[serde(default)]
+    pub bio: Option<String>,
+    /// `ChatFullInfo`: primary invite link for groups/channels.
+    #[serde(default)]
+    pub invite_link: Option<String>,
+    /// `ChatFullInfo`: the discussion group a channel is linked to.
+    #[serde(default)]
+    pub linked_chat_id: Option<i64>,
+    /// `ChatFullInfo`: whether new members see the chat's history.
+    #[serde(default)]
+    pub has_visible_history: Option<bool>,
+}
+
+/// Telegram ChatMember object — the status a user holds in a chat. The
+/// per-status extra fields (`can_post_messages`, `until_date`, …) are left
+/// unparsed; `status` discriminates them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ChatMember {
+    /// `creator`, `administrator`, `member`, `restricted`, `left`, or
+    /// `kicked`.
+    pub status: String,
+    /// The user the status describes.
+    pub user: User,
 }
 
 /// Chat type
