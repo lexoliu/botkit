@@ -5,10 +5,10 @@ mod event;
 pub mod types;
 
 pub use bot::{TelegramBot, TelegramWebhook};
-pub use client::{MediaKind, NewSticker, TelegramClient};
+pub use client::{ChatRef, MediaKind, NewSticker, TelegramClient};
 pub use event::TelegramContextData;
 pub use types::{
-    BotCommand, CallbackQuery, Chat, File, InlineKeyboardButton, InlineKeyboardMarkup, MediaFile,
-    Message, MessageReactionUpdated, PhotoSize, ReactionType, ReplyMarkup, Sticker, StickerSet,
-    Update, UpdateKind, User,
+    BotCommand, CallbackQuery, Chat, ChatMember, File, InlineKeyboardButton, InlineKeyboardMarkup,
+    MediaFile, Message, MessageReactionUpdated, PhotoSize, ReactionType, ReplyMarkup, Sticker,
+    StickerSet, Update, UpdateKind, User,
 };
