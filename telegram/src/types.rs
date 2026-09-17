@@ -93,6 +93,36 @@ pub struct Message {
     pub animation: Option<MediaFile>,
     /// Forum topic the message was posted to, if the chat has topics.
     pub message_thread_id: Option<i64>,
+    /// Where a forwarded message originally came from.
+    #[serde(default)]
+    pub forward_origin: Option<ForwardOrigin>,
+}
+
+/// The `forward_origin` of a forwarded message — the `MessageOrigin`
+/// union, discriminated by `type`: `user`, `hidden_user`, `chat`
+/// (a user writing on a group's behalf), or `channel`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ForwardOrigin {
+    /// `user`, `hidden_user`, `chat`, or `channel`.
+    #[serde(rename = "type")]
+    pub origin_type: String,
+    /// Original send date of the forwarded message.
+    pub date: i64,
+    /// `user`: the original sender.
+    #[serde(default)]
+    pub sender_user: Option<User>,
+    /// `hidden_user`: the sender's name when they hide their account.
+    #[serde(default)]
+    pub sender_user_name: Option<String>,
+    /// `chat`/`channel`: the chat the message came from.
+    #[serde(default)]
+    pub chat: Option<Box<Chat>>,
+    /// `channel`: the original message id inside the channel.
+    #[serde(default)]
+    pub message_id: Option<i64>,
+    /// `chat`/`channel`: the post's author signature.
+    #[serde(default)]
+    pub author_signature: Option<String>,
 }
 
 /// A sticker attached to a message or contained in a sticker set.
