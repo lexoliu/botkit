@@ -14,6 +14,7 @@ zenwave.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 mime_guess.workspace = true
+pulldown-cmark.workspace = true
 futures-lite.workspace = true
 executor-core.workspace = true
 rustls = { version = "0.23", default-features = false, features = ["ring"] }

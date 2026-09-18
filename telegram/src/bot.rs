@@ -12,7 +12,8 @@ use tracing::{error, warn};
 use crate::client::TelegramClient;
 use crate::event::TelegramContextData;
 use crate::types::{
-    BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup, Update, UpdateKind,
+    BotCommand, Formatted, InlineKeyboardButton, InlineKeyboardMarkup, ReplyMarkup, Update,
+    UpdateKind,
 };
 
 /// How long Telegram holds a long-poll open before returning empty.
@@ -416,7 +417,7 @@ async fn send_response(
                 chat_id,
                 file.file,
                 file.filename.as_deref(),
-                file.caption.as_deref(),
+                file.caption.as_deref().map(Formatted::from),
                 thread_id,
             )
             .await
