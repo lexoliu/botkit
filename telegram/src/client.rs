@@ -4,7 +4,7 @@ use botkit_core::{BotError, FileSource};
 use serde::de::DeserializeOwned;
 use zenwave::{Client, ResponseExt};
 
-use crate::types::{BotCommand, InlineKeyboardMarkup, ReplyMarkup, StickerSet};
+use crate::types::{BotCommand, Formatted, InlineKeyboardMarkup, ReplyMarkup, StickerSet};
 
 const API_BASE: &str = "https://api.telegram.org";
 
@@ -53,7 +53,7 @@ struct Upload<'a> {
     /// File name hint for the upload part.
     filename: &'a str,
     /// Optional caption under the media.
-    caption: Option<&'a str>,
+    caption: Option<Formatted<'a>>,
     /// Forum topic to post into.
     thread_id: Option<i64>,
 }
@@ -260,11 +260,11 @@ impl TelegramClient {
     pub async fn send_message(
         &self,
         chat_id: i64,
-        text: &str,
+        text: impl Into<Formatted<'_>>,
         thread_id: Option<i64>,
         reply_markup: Option<ReplyMarkup>,
     ) -> Result<i64, BotError> {
-        self.send_message_inner(chat_id, text, None, thread_id, reply_markup)
+        self.send_message_inner(chat_id, text.into(), None, thread_id, reply_markup)
             .await
     }
 
@@ -278,7 +278,7 @@ impl TelegramClient {
         &self,
         chat_id: i64,
         reply_to: i64,
-        text: &str,
+        text: impl Into<Formatted<'_>>,
     ) -> Result<i64, BotError> {
         self.send_reply_markup(chat_id, reply_to, text, None).await
     }
@@ -288,12 +288,12 @@ impl TelegramClient {
         &self,
         chat_id: i64,
         reply_to: i64,
-        text: &str,
+        text: impl Into<Formatted<'_>>,
         markup: Option<InlineKeyboardMarkup>,
     ) -> Result<i64, BotError> {
         self.send_message_inner(
             chat_id,
-            text,
+            text.into(),
             Some(reply_to),
             None,
             markup.map(ReplyMarkup::InlineKeyboard),
@@ -304,15 +304,20 @@ impl TelegramClient {
     async fn send_message_inner(
         &self,
         chat_id: i64,
-        text: &str,
+        text: Formatted<'_>,
         reply_to: Option<i64>,
         thread_id: Option<i64>,
         reply_markup: Option<ReplyMarkup>,
     ) -> Result<i64, BotError> {
         let mut body = serde_json::json!({
             "chat_id": chat_id,
-            "text": text,
+            "text": text.text,
         });
+
+        if !text.entities.is_empty() {
+            body["entities"] = serde_json::to_value(text.entities)
+                .map_err(|e| BotError::Other(format!("failed to serialize entities: {e}")))?;
+        }
 
         if let Some(thread) = thread_id {
             body["message_thread_id"] = serde_json::json!(thread);
@@ -339,14 +344,20 @@ impl TelegramClient {
         &self,
         chat_id: i64,
         message_id: i64,
-        text: &str,
+        text: impl Into<Formatted<'_>>,
         reply_markup: Option<ReplyMarkup>,
     ) -> Result<(), BotError> {
+        let text = text.into();
         let mut body = serde_json::json!({
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text,
+            "text": text.text,
         });
+
+        if !text.entities.is_empty() {
+            body["entities"] = serde_json::to_value(text.entities)
+                .map_err(|e| BotError::Other(format!("failed to serialize entities: {e}")))?;
+        }
 
         if let Some(markup) = reply_markup {
             body["reply_markup"] = serde_json::to_value(markup)
@@ -642,7 +653,7 @@ impl TelegramClient {
         chat_id: i64,
         file: FileSource,
         filename: Option<&str>,
-        caption: Option<&str>,
+        caption: Option<Formatted<'_>>,
         thread_id: Option<i64>,
     ) -> Result<i64, BotError> {
         self.send_media(
@@ -664,7 +675,7 @@ impl TelegramClient {
         chat_id: i64,
         file: FileSource,
         filename: &str,
-        caption: Option<&str>,
+        caption: Option<Formatted<'_>>,
         thread_id: Option<i64>,
     ) -> Result<i64, BotError> {
         self.send_media(
@@ -700,7 +711,7 @@ impl TelegramClient {
         kind: MediaKind,
         file: FileSource,
         filename: &str,
-        caption: Option<&str>,
+        caption: Option<Formatted<'_>>,
         thread_id: Option<i64>,
     ) -> Result<i64, BotError> {
         let (method, field) = kind.spec();
@@ -726,7 +737,7 @@ impl TelegramClient {
         chat_id: i64,
         kind: MediaKind,
         file_id: &str,
-        caption: Option<&str>,
+        caption: Option<Formatted<'_>>,
         thread_id: Option<i64>,
     ) -> Result<i64, BotError> {
         let (method, field) = kind.spec();
@@ -735,7 +746,11 @@ impl TelegramClient {
             field: file_id,
         });
         if let Some(caption) = caption {
-            body["caption"] = serde_json::json!(caption);
+            body["caption"] = serde_json::json!(caption.text);
+            if !caption.entities.is_empty() {
+                body["caption_entities"] = serde_json::to_value(caption.entities)
+                    .map_err(|e| BotError::Other(format!("failed to serialize entities: {e}")))?;
+            }
         }
         if let Some(thread) = thread_id {
             body["message_thread_id"] = serde_json::json!(thread);
@@ -880,7 +895,12 @@ impl TelegramClient {
         }
 
         if let Some(caption) = upload.caption {
-            multipart.push(MultipartPart::text("caption", caption));
+            multipart.push(MultipartPart::text("caption", caption.text.to_string()));
+            if !caption.entities.is_empty() {
+                let entities = serde_json::to_string(caption.entities)
+                    .map_err(|e| BotError::Other(format!("failed to serialize entities: {e}")))?;
+                multipart.push(MultipartPart::text("caption_entities", entities));
+            }
         }
 
         multipart.push(MultipartPart::binary(

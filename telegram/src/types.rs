@@ -202,7 +202,7 @@ pub struct StickerSet {
 }
 
 /// Telegram User object
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: i64,
     pub is_bot: bool,
@@ -268,19 +268,51 @@ pub enum ChatType {
 }
 
 /// Message entity (commands, mentions, etc.)
-#[derive(Debug, Clone, Deserialize)]
+///
+/// `offset` and `length` are UTF-16 code-unit indices into the message
+/// text — the same units Telegram uses everywhere entities appear.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageEntity {
     #[serde(rename = "type")]
     pub entity_type: EntityType,
     pub offset: i64,
     pub length: i64,
     /// `text_mention` entities carry the mentioned user inline.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user: Option<User>,
+    /// `text_link` entities carry the target URL.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    /// `pre` entities carry the code block's language for highlighting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// `custom_emoji` entities carry the emoji's sticker id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_emoji_id: Option<String>,
+}
+
+/// Text paired with the entities that format it — the shape
+/// `sendMessage`/`editMessageText` and media `caption`s accept verbatim.
+/// The sender computes entity offsets; Telegram does no re-parsing, so no
+/// `parse_mode` escaping rules apply. A plain `&str` converts in with an
+/// empty entity list.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Formatted<'a> {
+    pub text: &'a str,
+    pub entities: &'a [MessageEntity],
+}
+
+impl<'a> From<&'a str> for Formatted<'a> {
+    fn from(text: &'a str) -> Self {
+        Self {
+            text,
+            entities: &[],
+        }
+    }
 }
 
 /// Entity type
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityType {
     Mention,
@@ -299,6 +331,8 @@ pub enum EntityType {
     Pre,
     TextLink,
     TextMention,
+    Blockquote,
+    ExpandableBlockquote,
     CustomEmoji,
     #[serde(other)]
     Unknown,
