@@ -34,3 +34,6 @@ futures-lite.workspace = true
 # `async-executor` teaches executor-core how to drive an `async_executor::Executor`.
 executor-core = { workspace = true, features = ["async-executor"] }
 tracing-subscriber = "0.3.23"
+
+[lints.cargo]
+unused_dependencies = "deny"
