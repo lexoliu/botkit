@@ -22,3 +22,6 @@ base64 = "0.22"
 [dev-dependencies]
 async-executor = "1.14"
 executor-core = { workspace = true, features = ["async-executor"] }
+
+[lints.cargo]
+unused_dependencies = "deny"

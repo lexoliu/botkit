@@ -22,3 +22,6 @@ matrix-sdk = { version = "0.18", default-features = false, features = ["bundled-
 # in .cargo/config.toml.
 getrandom = { version = "0.3", features = ["wasm_js"] }
 matrix-sdk = { version = "0.18", default-features = false, features = ["e2e-encryption", "js"] }
+
+[lints.cargo]
+unused_dependencies = "deny"

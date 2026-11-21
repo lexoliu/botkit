@@ -62,3 +62,6 @@ botkit-discord = { workspace = true, optional = true }
 botkit-telegram = { workspace = true, optional = true }
 botkit-matrix = { workspace = true, optional = true }
 botkit-cli = { workspace = true, optional = true }
+
+[lints.cargo]
+unused_dependencies = "deny"

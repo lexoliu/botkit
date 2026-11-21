@@ -102,20 +102,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-  unused-deps:
-    name: Unused Dependencies
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_TOOLCHAIN }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ci-ubuntu
-      - uses: taiki-e/install-action@cargo-machete
-      - run: cargo machete
-
   feature-checks:
     name: Features
     runs-on: ubuntu-latest
