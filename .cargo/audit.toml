@@ -1,0 +1,6 @@
+# Advisory IDs whose fixes cannot reach us through the resolver.
+# - `libsqlite3-sys` RUSTSEC-2026-0459 needs >=0.39, but `matrix-sdk-sqlite`
+#   pins rusqlite to the 0.40 line, which pairs with libsqlite3-sys 0.38.x.
+#   Drop this entry once a rusqlite release pairs with a patched sys crate.
+[advisories]
+ignore = ["RUSTSEC-2026-0459"]
